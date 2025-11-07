@@ -268,3 +268,6 @@ c-kzg = { version = "2.1.1", default-features = false }
 ark-ff = { version = "0.5.0", default-features = false }
 secp256k1 = { version = "0.31.0", default-features = false }
 ark-bls12-381 = { version = "0.5.0", default-features = false }
+
+[patch.crates-io]
+alloy-evm = { git = "https://github.com/Kourin1996/evm", rev = "50efbda59c76232d8ff929e7e0f5933c0bc5815a" }
