@@ -132,7 +132,7 @@ where
         drop(kv_lock);
 
         // Use a loop to keep retrying the prefetch as long as the key is not found
-        timeout(Duration::from_secs(10), async {
+        timeout(Duration::from_secs(30), async {
             while preimage.is_none() {
                 if let Some(hint) = self.last_hint.read().await.as_ref() {
                     let value =
