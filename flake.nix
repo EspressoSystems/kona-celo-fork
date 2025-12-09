@@ -65,11 +65,9 @@
             echo "Cargo version: $(cargo --version)"
             echo ""
             echo "Available commands:"
-            echo "  cargo test          - Run all tests"
-            echo "  cargo test --lib    - Run library tests only"
-            echo "  cargo check         - Check compilation"
-            echo "  cargo clippy        - Run linter"
-            echo "  cargo fmt           - Format code"
+            echo "just test          - Run all tests"
+            echo "just build-node    - Build the rollup node"
+            echo "just build-supervisor - Build the supervisor"
             echo ""
           '';
         };

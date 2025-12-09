@@ -2,8 +2,7 @@
 
 use crate::{ChainProvider, DataAvailabilityProvider, PipelineError, PipelineResult};
 use alloc::{boxed::Box, collections::VecDeque};
-use alloc::vec::Vec;
-use alloy_consensus::{Transaction, TxEnvelope, transaction::SignerRecoverable, Receipt};
+use alloy_consensus::{Transaction, TxEnvelope, transaction::SignerRecoverable};
 use alloy_primitives::{Address, Bytes};
 use async_trait::async_trait;
 use kona_protocol::BlockInfo;
@@ -40,17 +39,18 @@ impl<CP: ChainProvider + Send> CalldataSource<CP> {
             return Ok(());
         }
 
-
         let (_, txs) =
             self.chain_provider.block_info_and_transactions_by_hash(block_ref.hash).await?;
 
         // Simple modification to the derivation pipeline: obtain the receipts
-        let mut receipts: Vec<Receipt> = Vec::new();
-        // only fetch receipts if there are transactions
-        receipts = self.chain_provider.receipts_by_hash(block_ref.hash).await?;
-
-        if receipts.len()> 0{
-            receipts.remove(0);
+        if !txs.is_empty() {
+            if let Ok(mut receipts) =
+                self.chain_provider.receipts_by_hash(block_ref.hash).await
+            {
+                if !receipts.is_empty() {
+                    receipts.remove(0);
+                }
+            }
         }
 
         self.calldata = txs
