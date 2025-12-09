@@ -4,7 +4,7 @@ use crate::{ChainProvider, DataAvailabilityProvider, PipelineError, PipelineResu
 
 use alloc::{boxed::Box, collections::VecDeque, vec::Vec};
 use alloy_consensus::{
-    Receipt, Transaction, TxEnvelope, TxReceipt, transaction::SignerRecoverable,
+    Receipt, Transaction, TxEnvelope, TxReceipt
 };
 use alloy_primitives::{Address, Bytes};
 use async_trait::async_trait;
@@ -36,7 +36,7 @@ impl<CP: ChainProvider + Send> CalldataSource<CP> {
     async fn load_calldata(
         &mut self,
         block_ref: &BlockInfo,
-        batcher_address: Address,
+        _batcher_address: Address,
     ) -> Result<(), CP::Error> {
         if self.open {
             return Ok(());
@@ -80,6 +80,8 @@ impl<CP: ChainProvider + Send> CalldataSource<CP> {
                 // NOTE: contrary to a standard OP batcher, we can safely skip any verification related
             	// to the sender of the transaction. Indeed the Batch Inbox contract takes care of
 	            // ensuring the sender of the batch information is a legitimate batcher.
+                // Thus the parameter `batcher_address` is not used anymore.
+	            // However, it is kept for compatibility with upstream code.
 
                 Some(data.to_vec().into())
             })
