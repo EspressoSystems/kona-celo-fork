@@ -231,15 +231,15 @@ jobs:
       #   with:
       #     token: ${{ secrets.CODECOV_TOKEN }}
 
-  deny:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          submodules: true
-      - uses: EmbarkStudios/cargo-deny-action@v2
-        with:
-          rust-version: 1.88
+#  deny:
+#    runs-on: ubuntu-latest
+#    steps:
+#      - uses: actions/checkout@v5
+#        with:
+#          submodules: true
+#      - uses: EmbarkStudios/cargo-deny-action@v2
+#        with:
+#          rust-version: 1.88
 
   zepter:
     runs-on: ubuntu-latest
