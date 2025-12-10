@@ -44,8 +44,8 @@ pub fn to_system_config(
             base_fee_scalar,
             blob_base_fee_scalar,
             ..
-        }) |
-        L1BlockInfoTx::Isthmus(L1BlockInfoIsthmus {
+        })
+        | L1BlockInfoTx::Isthmus(L1BlockInfoIsthmus {
             base_fee_scalar,
             blob_base_fee_scalar,
             ..

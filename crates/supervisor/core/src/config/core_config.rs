@@ -41,8 +41,8 @@ impl InteropValidator for Config {
         timeout: Option<u64>,
     ) -> Result<(), InteropValidationError> {
         // Interop must be active on both chains at the relevant times
-        if !self.rollup_config_set.is_post_interop(initiating_chain_id, initiating_timestamp) ||
-            !self.rollup_config_set.is_post_interop(executing_chain_id, executing_timestamp)
+        if !self.rollup_config_set.is_post_interop(initiating_chain_id, initiating_timestamp)
+            || !self.rollup_config_set.is_post_interop(executing_chain_id, executing_timestamp)
         {
             return Err(InteropValidationError::InteropNotEnabled);
         }

@@ -308,8 +308,8 @@ impl AttributesMatch {
             return m;
         }
 
-        if attributes.inner().payload_attributes.parent_beacon_block_root !=
-            block.header.inner.parent_beacon_block_root
+        if attributes.inner().payload_attributes.parent_beacon_block_root
+            != block.header.inner.parent_beacon_block_root
         {
             return AttributesMismatch::ParentBeaconBlockRoot(
                 attributes.inner().payload_attributes.parent_beacon_block_root,
@@ -318,8 +318,8 @@ impl AttributesMatch {
             .into();
         }
 
-        if attributes.inner().payload_attributes.suggested_fee_recipient !=
-            block.header.inner.beneficiary
+        if attributes.inner().payload_attributes.suggested_fee_recipient
+            != block.header.inner.beneficiary
         {
             return AttributesMismatch::FeeRecipient(
                 attributes.inner().payload_attributes.suggested_fee_recipient,

@@ -152,7 +152,7 @@ mod tests {
         // load a test batcher transaction
         let raw_batcher_tx = include_bytes!("../../testdata/raw_batcher_tx.hex");
         let tx = TxEnvelope::decode_2718(&mut raw_batcher_tx.as_ref()).unwrap();
-         chain.insert_block_with_transactions(10, block_ref, vec![tx.clone()]);
+        chain.insert_block_with_transactions(10, block_ref, vec![tx.clone()]);
         let receipt = Receipt {
             cumulative_gas_used: 42000,
             status: Eip658Value::Eip658(true),

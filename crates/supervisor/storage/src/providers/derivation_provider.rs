@@ -563,8 +563,8 @@ where
                 processed_blocks += 1;
 
                 // Log progress periodically or on last block
-                if processed_blocks % self.observability_interval == 0 ||
-                    processed_blocks == total_blocks
+                if processed_blocks % self.observability_interval == 0
+                    || processed_blocks == total_blocks
                 {
                     let percentage = if total_blocks > 0 {
                         (processed_blocks as f64 / total_blocks as f64 * 100.0).min(100.0)
@@ -662,8 +662,8 @@ where
                     return Err(StorageError::ConflictError);
                 }
 
-                if derived_rewind_target.is_none() &&
-                    !block_traversal.derived_block_numbers.is_empty()
+                if derived_rewind_target.is_none()
+                    && !block_traversal.derived_block_numbers.is_empty()
                 {
                     let first_num = block_traversal.derived_block_numbers[0];
                     let derived_block_pair = self.get_derived_block_pair_by_number(first_num)?;

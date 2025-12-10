@@ -103,9 +103,9 @@ impl Engine {
         .await
         {
             match err.severity() {
-                EngineTaskErrorSeverity::Temporary |
-                EngineTaskErrorSeverity::Flush |
-                EngineTaskErrorSeverity::Reset => {
+                EngineTaskErrorSeverity::Temporary
+                | EngineTaskErrorSeverity::Flush
+                | EngineTaskErrorSeverity::Reset => {
                     debug!(target: "engine", ?err, "Forkchoice update failed during reset. Trying again...");
                 }
                 EngineTaskErrorSeverity::Critical => {

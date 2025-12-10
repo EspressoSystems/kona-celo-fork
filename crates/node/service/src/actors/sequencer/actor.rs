@@ -237,8 +237,8 @@ impl<AB: AttributesBuilder> SequencerActorState<AB> {
             }
         };
 
-        if unsafe_head.l1_origin.hash != l1_origin.parent_hash &&
-            unsafe_head.l1_origin.hash != l1_origin.hash
+        if unsafe_head.l1_origin.hash != l1_origin.parent_hash
+            && unsafe_head.l1_origin.hash != l1_origin.hash
         {
             warn!(
                 target: "sequencer",
@@ -301,8 +301,8 @@ impl<AB: AttributesBuilder> SequencerActorState<AB> {
 
         // If the next L2 block is beyond the sequencer drift threshold, we must produce an empty
         // block.
-        if attributes.payload_attributes.timestamp >
-            l1_origin.timestamp + self.cfg.max_sequencer_drift(l1_origin.timestamp)
+        if attributes.payload_attributes.timestamp
+            > l1_origin.timestamp + self.cfg.max_sequencer_drift(l1_origin.timestamp)
         {
             attributes.no_tx_pool = Some(true);
         }

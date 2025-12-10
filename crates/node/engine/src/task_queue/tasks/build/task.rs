@@ -95,13 +95,15 @@ impl BuildTask {
     ) -> Result<PayloadId, BuildTaskError> {
         // Sanity check if the head is behind the finalized head. If it is, this is a critical
         // error.
-        if state.sync_state.unsafe_head().block_info.number <
-            state.sync_state.finalized_head().block_info.number
+        if state.sync_state.unsafe_head().block_info.number
+            < state.sync_state.finalized_head().block_info.number
         {
-            return Err(BuildTaskError::EngineBuildError(EngineBuildError::FinalizedAheadOfUnsafe(
-                state.sync_state.unsafe_head().block_info.number,
-                state.sync_state.finalized_head().block_info.number,
-            )));
+            return Err(BuildTaskError::EngineBuildError(
+                EngineBuildError::FinalizedAheadOfUnsafe(
+                    state.sync_state.unsafe_head().block_info.number,
+                    state.sync_state.finalized_head().block_info.number,
+                ),
+            ));
         }
 
         // When inserting a payload, we advertise the parent's unsafe head as the current unsafe
