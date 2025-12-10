@@ -6,6 +6,8 @@ use alloc::{boxed::Box, collections::VecDeque, vec::Vec};
 use alloy_consensus::{
     Receipt, Transaction, TxEnvelope, TxReceipt
 };
+use alloy_consensus::transaction::SignerRecoverable;
+
 use alloy_primitives::{Address, Bytes};
 use async_trait::async_trait;
 use kona_protocol::BlockInfo;
@@ -126,7 +128,7 @@ mod tests {
     use alloc::{vec, vec::Vec};
     use alloy_consensus::{Signed, TxEip2930, TxEip4844, TxEip4844Variant, TxEip7702,Eip658Value, TxLegacy};
     use alloy_primitives::{Address, Signature, TxKind, address};
-    
+
 
     pub(crate) fn test_legacy_tx(to: Address) -> TxEnvelope {
         let sig = Signature::test_signature();
