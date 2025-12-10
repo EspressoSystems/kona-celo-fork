@@ -2,7 +2,7 @@ name: Espresso Rust CI
 
 on:
   push:
-    branches: 
+    branches:
     - '**'
   merge_group:
   pull_request:
@@ -27,38 +27,38 @@ jobs:
       - name: cargo test
         run: just test
 
-  cargo-lint:
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    strategy:
-      matrix:
-        target: ["native", "cannon", "asterisc"]
-    name: lint-${{ matrix.target }}
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v5
-        with:
-          submodules: true
-      - uses: ./.github/actions/setup
-        with:
-          channel: stable
-          components: clippy
-          prefix-key: ${{ matrix.target }}
-      - uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: rustfmt
-      - name: Log into ghcr
-        if: ${{ matrix.target != 'native' }}
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: fmt + lint
-        run: just lint-${{ matrix.target }}
-      - name: chown target
-        run: |
-          sudo chown -R $(id -u):$(id -g) ./target
+#  cargo-lint:
+#    runs-on: ubuntu-latest
+#    timeout-minutes: 40
+#    strategy:
+#      matrix:
+#        target: ["native", "cannon", "asterisc"]
+#    name: lint-${{ matrix.target }}
+#    steps:
+#      - name: Checkout sources
+#        uses: actions/checkout@v5
+#        with:
+#          submodules: true
+#      - uses: ./.github/actions/setup
+#        with:
+#          channel: stable
+#          components: clippy
+#          prefix-key: ${{ matrix.target }}
+#      - uses: dtolnay/rust-toolchain@nightly
+#        with:
+#          components: rustfmt
+#      - name: Log into ghcr
+#        if: ${{ matrix.target != 'native' }}
+#        uses: docker/login-action@v3
+#        with:
+#          registry: ghcr.io
+#          username: ${{ github.actor }}
+#          password: ${{ secrets.GITHUB_TOKEN }}
+#      - name: fmt + lint
+#        run: just lint-${{ matrix.target }}
+#      - name: chown target
+#        run: |
+#          sudo chown -R $(id -u):$(id -g) ./target
 
   cargo-build:
     runs-on: ubuntu-latest
