@@ -70,11 +70,11 @@ impl PeerScoreLevel {
             first_message_deliveries_cap: 23.0,
             mesh_message_deliveries_weight: Self::MESH_WEIGHT,
             mesh_message_deliveries_decay: Self::score_decay(decay_epoch, slot),
-            mesh_message_deliveries_cap: (epoch.as_secs() / slot.as_secs()) as f64
-                * Self::DECAY_EPOCH,
-            mesh_message_deliveries_threshold: (epoch.as_secs() / slot.as_secs()) as f64
-                * Self::DECAY_EPOCH
-                / 10.0,
+            mesh_message_deliveries_cap: (epoch.as_secs() / slot.as_secs()) as f64 *
+                Self::DECAY_EPOCH,
+            mesh_message_deliveries_threshold: (epoch.as_secs() / slot.as_secs()) as f64 *
+                Self::DECAY_EPOCH /
+                10.0,
             mesh_message_deliveries_window: std::time::Duration::from_secs(2),
             mesh_message_deliveries_activation: epoch * 4,
             mesh_failure_penalty_weight: Self::MESH_WEIGHT,

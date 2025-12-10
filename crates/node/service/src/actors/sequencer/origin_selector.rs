@@ -66,9 +66,9 @@ impl<P: L1OriginSelectorProvider> L1OriginSelector<P> {
         };
 
         let max_seq_drift = self.cfg.max_sequencer_drift(current.timestamp);
-        let past_seq_drift = unsafe_head.block_info.timestamp + self.cfg.block_time
-            - current.timestamp
-            > max_seq_drift;
+        let past_seq_drift = unsafe_head.block_info.timestamp + self.cfg.block_time -
+            current.timestamp >
+            max_seq_drift;
 
         // If the sequencer drift has not been exceeded, return the current L1 origin.
         if !past_seq_drift {
@@ -222,9 +222,9 @@ impl L1OriginSelectorProvider for DelayedL1OriginSelectorProvider {
                 .map(Into::into));
         };
 
-        if number == 0
-            || self.confirmation_depth == 0
-            || number + self.confirmation_depth <= l1_head.number
+        if number == 0 ||
+            self.confirmation_depth == 0 ||
+            number + self.confirmation_depth <= l1_head.number
         {
             Ok(Provider::get_block_by_number(&self.inner, number.into()).await?.map(Into::into))
         } else {

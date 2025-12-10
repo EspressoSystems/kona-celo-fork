@@ -214,10 +214,10 @@ impl NodeCommand {
         let mut source = Some(error);
         while let Some(err) = source {
             let err_str = err.to_string().to_lowercase();
-            if err_str.contains("signature invalid")
-                || (err_str.contains("jwt") && err_str.contains("invalid"))
-                || err_str.contains("unauthorized")
-                || err_str.contains("authentication failed")
+            if err_str.contains("signature invalid") ||
+                (err_str.contains("jwt") && err_str.contains("invalid")) ||
+                err_str.contains("unauthorized") ||
+                err_str.contains("authentication failed")
             {
                 return true;
             }

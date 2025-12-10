@@ -138,8 +138,8 @@ impl<F: ChainProvider> OriginProvider for IndexedTraversal<F> {
 impl<F: ChainProvider + Send> SignalReceiver for IndexedTraversal<F> {
     async fn signal(&mut self, signal: Signal) -> PipelineResult<()> {
         match signal {
-            Signal::Reset(ResetSignal { l1_origin, system_config, .. })
-            | Signal::Activation(ActivationSignal { l1_origin, system_config, .. }) => {
+            Signal::Reset(ResetSignal { l1_origin, system_config, .. }) |
+            Signal::Activation(ActivationSignal { l1_origin, system_config, .. }) => {
                 self.update_origin(l1_origin);
                 self.system_config = system_config.expect("System config must be provided.");
             }

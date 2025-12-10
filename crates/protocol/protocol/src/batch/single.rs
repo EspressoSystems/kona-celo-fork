@@ -175,8 +175,8 @@ impl SingleBatch {
                 return BatchValidity::Drop;
             }
             // If isthmus is not active yet and the transaction is a 7702, drop the batch.
-            if !cfg.is_isthmus_active(self.timestamp)
-                && tx.as_ref().first() == Some(&(OpTxType::Eip7702 as u8))
+            if !cfg.is_isthmus_active(self.timestamp) &&
+                tx.as_ref().first() == Some(&(OpTxType::Eip7702 as u8))
             {
                 return BatchValidity::Drop;
             }
