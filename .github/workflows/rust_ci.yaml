@@ -1,4 +1,4 @@
-name: Rust CI
+name: Espresso Rust CI
 
 on:
   push:
@@ -106,22 +106,23 @@ jobs:
         run: |
           sudo chown -R $(id -u):$(id -g) ./target
 
-  cargo-udeps:
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    name: check-udeps
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v5
-        with:
-          submodules: true
-      - uses: ./.github/actions/setup
-        with:
-          channel: nightly
-      - uses: taiki-e/install-action@nextest
-      - uses: taiki-e/install-action@cargo-udeps
-      - name: cargo udeps
-        run: just check-udeps
+  # This part of CI is broken in upstream as well, so commenting out
+  # cargo-udeps:
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 40
+  #   name: check-udeps
+  #   steps:
+  #     - name: Checkout sources
+  #       uses: actions/checkout@v5
+  #       with:
+  #         submodules: true
+  #     - uses: ./.github/actions/setup
+  #       with:
+  #         channel: nightly
+  #     - uses: taiki-e/install-action@nextest
+  #     - uses: taiki-e/install-action@cargo-udeps
+  #     - name: cargo udeps
+  #       run: just check-udeps
 
   cargo-doc-lint:
     runs-on: ubuntu-latest
@@ -213,20 +214,21 @@ jobs:
            just llvm-cov-tests && mv ./target/nextest/ci/junit.xml ./junit.xml
       - name: Record Rust version
         run: echo "RUST=$(rustc --version)" >> "$GITHUB_ENV"
-      - name: Upload coverage to codecov.io
-        uses: codecov/codecov-action@v5
-        with:
-          fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
-          env_vars: OS,RUST
-          files: lcov.info
-          flags: unit
-          verbose: true
-      - name: Upload test results to codecov.io
-        if: ${{ !cancelled() }}
-        uses: codecov/test-results-action@v1
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
+      # We don't have codecov enabled
+      # - name: Upload coverage to codecov.io
+      #   uses: codecov/codecov-action@v5
+      #   with:
+      #     fail_ci_if_error: true
+      #     token: ${{ secrets.CODECOV_TOKEN }}
+      #     env_vars: OS,RUST
+      #     files: lcov.info
+      #     flags: unit
+      #     verbose: true
+      # - name: Upload test results to codecov.io
+      #   if: ${{ !cancelled() }}
+      #   uses: codecov/test-results-action@v1
+      #   with:
+      #     token: ${{ secrets.CODECOV_TOKEN }}
 
   deny:
     runs-on: ubuntu-latest

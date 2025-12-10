@@ -49,15 +49,16 @@ jobs:
           source <(cargo llvm-cov show-env --export-prefix)
           just "action-tests-${{ matrix.kind }}"
           cargo llvm-cov report --lcov --output-path actions_cov.lcov
-      - name: Upload coverage to codecov.io
-        uses: codecov/codecov-action@v5
-        with:
-          fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
-          env_vars: OS,RUST
-          files: actions_cov.lcov
-          flags: proof
-          verbose: true
+      # We dont have a subscription of codecov.io
+      # - name: Upload coverage to codecov.io
+      #   uses: codecov/codecov-action@v5
+      #   with:
+      #     fail_ci_if_error: true
+      #     token: ${{ secrets.CODECOV_TOKEN }}
+      #     env_vars: OS,RUST
+      #     files: actions_cov.lcov
+      #     flags: proof
+      #     verbose: true
 
   host-client-offline-runs:
     name: FPP e2e - ${{ matrix.target}} | ${{ matrix.name }}
@@ -143,12 +144,13 @@ jobs:
             $L2_CHAIN_ID
 
           cargo llvm-cov report --lcov --output-path client_host_cov.lcov
-      - name: Upload coverage to codecov.io
-        uses: codecov/codecov-action@v5
-        with:
-          fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
-          env_vars: OS,RUST
-          files: client_host_cov.lcov
-          flags: proof
-          verbose: true
+      # We dont have codecov enabled
+      # - name: Upload coverage to codecov.io
+      #   uses: codecov/codecov-action@v5
+      #   with:
+      #     fail_ci_if_error: true
+      #     token: ${{ secrets.CODECOV_TOKEN }}
+      #     env_vars: OS,RUST
+      #     files: client_host_cov.lcov
+      #     flags: proof
+      #     verbose: true
