@@ -2,9 +2,9 @@ name: Espresso Rust CI
 
 on:
   push:
-    branches: [main]
+    branches: 
+    - '**'
   merge_group:
-  create:
   pull_request:
 
 env:
