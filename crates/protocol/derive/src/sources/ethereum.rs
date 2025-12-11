@@ -86,7 +86,7 @@ mod tests {
         test_utils::{TestBlobProvider, TestChainProvider},
     };
     use alloc::vec;
-    use alloy_consensus::TxEnvelope;
+    use alloy_consensus::{Eip658Value, Receipt, TxEnvelope};
     use alloy_eips::eip2718::Decodable2718;
     use alloy_primitives::{Address, address};
     use kona_genesis::{HardForkConfig, RollupConfig, SystemConfig};
@@ -152,7 +152,13 @@ mod tests {
         // load a test batcher transaction
         let raw_batcher_tx = include_bytes!("../../testdata/raw_batcher_tx.hex");
         let tx = TxEnvelope::decode_2718(&mut raw_batcher_tx.as_ref()).unwrap();
-        chain.insert_block_with_transactions(10, block_ref, vec![tx]);
+         chain.insert_block_with_transactions(10, block_ref, vec![tx.clone()]);
+        let receipt = Receipt {
+            cumulative_gas_used: 42000,
+            status: Eip658Value::Eip658(true),
+            ..Default::default()
+        };
+        chain.insert_receipts(block_ref.hash, vec![receipt]);
 
         // Should successfully retrieve a calldata batch from the block
         let mut data_source = EthereumDataSource::new_from_parts(chain, blob, &cfg);

@@ -50,11 +50,11 @@
           # Environment variables
           RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
           RUST_BACKTRACE = "1";
-          
+
           # Clang/LLVM configuration for bindgen
           LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
           BINDGEN_EXTRA_CLANG_ARGS = "-I${pkgs.glibc.dev}/include";
-          
+
           # OpenSSL configuration for cross-platform compatibility
           OPENSSL_NO_VENDOR = "1";
           PKG_CONFIG_PATH = "${pkgs.openssl.dev}/lib/pkgconfig";
@@ -64,12 +64,7 @@
             echo "Rust version: $(rustc --version)"
             echo "Cargo version: $(cargo --version)"
             echo ""
-            echo "Available commands:"
-            echo "  cargo test          - Run all tests"
-            echo "  cargo test --lib    - Run library tests only"
-            echo "  cargo check         - Check compilation"
-            echo "  cargo clippy        - Run linter"
-            echo "  cargo fmt           - Format code"
+            echo "just tests         - Run all tests"
             echo ""
           '';
         };
