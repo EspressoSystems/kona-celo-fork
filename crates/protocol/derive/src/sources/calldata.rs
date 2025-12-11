@@ -80,10 +80,10 @@ impl<CP: ChainProvider + Send> CalldataSource<CP> {
                 }
 
                 // NOTE: contrary to a standard OP batcher, we can safely skip any verification related
-            	// to the sender of the transaction. Indeed the Batch Inbox contract takes care of
-	            // ensuring the sender of the batch information is a legitimate batcher.
+                // to the sender of the transaction. Indeed the Batch Inbox contract takes care of
+                // ensuring the sender of the batch information is a legitimate batcher.
                 // Thus the parameter `batcher_address` is not used anymore.
-	            // However, it is kept for compatibility with upstream code.
+                // However, it is kept for compatibility with upstream code.
 
                 Some(data.to_vec().into())
             })
