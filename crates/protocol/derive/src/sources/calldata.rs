@@ -6,7 +6,6 @@ use alloc::{boxed::Box, collections::VecDeque, vec::Vec};
 use alloy_consensus::{
     Receipt, Transaction, TxEnvelope, TxReceipt
 };
-use alloy_consensus::transaction::SignerRecoverable;
 
 use alloy_primitives::{Address, Bytes};
 use async_trait::async_trait;
@@ -66,7 +65,7 @@ impl<CP: ChainProvider + Send> CalldataSource<CP> {
                 };
 
                 // Get the corresponding receipt, if the receipt status is false,
-                // that means it cannot be valid batch inbox tx.
+                // that means it cant be valid batch inbox tx.
                 // TODO: In future, we should add a conditional check that this should only be done
                 // for txs after Espresso migration.
                 let receipt: &Receipt = receipts.get(index)?;
@@ -80,10 +79,10 @@ impl<CP: ChainProvider + Send> CalldataSource<CP> {
                 }
 
                 // NOTE: contrary to a standard OP batcher, we can safely skip any verification related
-                // to the sender of the transaction. Indeed the Batch Inbox contract takes care of
-                // ensuring the sender of the batch information is a legitimate batcher.
-                // Thus the parameter `batcher_address` is not used anymore.
-                // However, it is kept for compatibility with upstream code.
+            	// to the sender of the transaction. Indeed, the Batch Inbox contract takes care of
+	            // ensuring the sender of the batch information is a legitimate batcher.
+                // Thus, the parameter `batcher_address` is not used anymore.
+	            // However, it is kept for compatibility with upstream code.
 
                 Some(data.to_vec().into())
             })
@@ -126,6 +125,7 @@ mod tests {
     use super::*;
     use crate::{errors::PipelineErrorKind, test_utils::TestChainProvider};
     use alloc::{vec, vec::Vec};
+    use alloy_consensus::transaction::SignerRecoverable;
     use alloy_consensus::{Signed, TxEip2930, TxEip4844, TxEip4844Variant, TxEip7702, Eip658Value, TxLegacy};
     use alloy_primitives::{Address, Signature, TxKind, address};
 
@@ -216,7 +216,7 @@ mod tests {
             status: Eip658Value::Eip658(true),
             ..Default::default()
         };
-        source.chain_provider.insert_receipts(*tx.hash(), vec![receipt]);
+        source.chain_provider.insert_receipts(block_info.hash, vec![receipt]);
         assert!(!source.open); // Source is not open by default.
         assert!(source.load_calldata(&BlockInfo::default(), Address::ZERO).await.is_ok());
         assert!(source.calldata.is_empty());
@@ -236,7 +236,7 @@ mod tests {
             status: Eip658Value::Eip658(true),
             ..Default::default()
         };
-        source.chain_provider.insert_receipts(*tx.hash(), vec![receipt]);
+        source.chain_provider.insert_receipts(block_info.hash, vec![receipt]);
         assert!(!source.open); // Source is not open by default.
         assert!(
             source.load_calldata(&BlockInfo::default(), tx.recover_signer().unwrap()).await.is_ok()
@@ -258,7 +258,7 @@ mod tests {
             status: Eip658Value::Eip658(true),
             ..Default::default()
         };
-        source.chain_provider.insert_receipts(*tx.hash(), vec![receipt]);
+        source.chain_provider.insert_receipts(block_info.hash, vec![receipt]);
         assert!(!source.open); // Source is not open by default.
         assert!(
             source.load_calldata(&BlockInfo::default(), tx.recover_signer().unwrap()).await.is_ok()
@@ -280,7 +280,7 @@ mod tests {
             status: Eip658Value::Eip658(true),
             ..Default::default()
         };
-        source.chain_provider.insert_receipts(*tx.hash(), vec![receipt]);
+        source.chain_provider.insert_receipts(block_info.hash, vec![receipt]);
         assert!(!source.open); // Source is not open by default.
         assert!(
             source.load_calldata(&BlockInfo::default(), tx.recover_signer().unwrap()).await.is_ok()
@@ -302,7 +302,7 @@ mod tests {
             status: Eip658Value::Eip658(true),
             ..Default::default()
         };
-        source.chain_provider.insert_receipts(*tx.hash(), vec![receipt]);
+        source.chain_provider.insert_receipts(block_info.hash, vec![receipt]);
         assert!(!source.open); // Source is not open by default.
         assert!(
             source.load_calldata(&BlockInfo::default(), tx.recover_signer().unwrap()).await.is_ok()
@@ -336,7 +336,7 @@ mod tests {
             status: Eip658Value::Eip658(true),
             ..Default::default()
         };
-        source.chain_provider.insert_receipts(*tx.hash(), vec![receipt]);
+        source.chain_provider.insert_receipts(block_info.hash, vec![receipt]);
         assert!(!source.open); // Source is not open by default.
         assert!(
             source.load_calldata(&BlockInfo::default(), tx.recover_signer().unwrap()).await.is_ok()
@@ -360,7 +360,7 @@ mod tests {
             status: Eip658Value::Eip658(false),
             ..Default::default()
         };
-        source.chain_provider.insert_receipts(*tx.hash(), vec![receipt]);
+        source.chain_provider.insert_receipts(block_info.hash, vec![receipt]);
         assert!(!source.open); // Source is not open by default.
         assert!(
             source.load_calldata(&BlockInfo::default(), tx.recover_signer().unwrap()).await.is_ok()
