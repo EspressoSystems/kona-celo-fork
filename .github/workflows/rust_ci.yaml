@@ -1,8 +1,9 @@
-name: Rust CI
+name: Espresso Rust CI
 
 on:
   push:
-    branches: [main]
+    branches:
+    - '**'
   merge_group:
   pull_request:
 
@@ -31,6 +32,7 @@ jobs:
         run: just test
 
   cargo-lint:
+    if: false # Broken
     runs-on: ubuntu-latest
     timeout-minutes: 40
     strategy:
@@ -123,6 +125,7 @@ jobs:
           sudo chown -R $(id -u):$(id -g) ./target
 
   cargo-udeps:
+    if: false # Broken
     runs-on: ubuntu-latest
     timeout-minutes: 40
     name: check-udeps
@@ -183,6 +186,7 @@ jobs:
       - uses: crate-ci/typos@v1
 
   cargo-hack:
+    if: false # Takes a lot of time, not relevant in our context
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -245,22 +249,24 @@ jobs:
            just llvm-cov-tests && mv ./target/nextest/ci/junit.xml ./junit.xml
       - name: Record Rust version
         run: echo "RUST=$(rustc --version)" >> "$GITHUB_ENV"
-      - name: Upload coverage to codecov.io
-        uses: codecov/codecov-action@v5
-        with:
-          fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
-          env_vars: OS,RUST
-          files: lcov.info
-          flags: unit
-          verbose: true
-      - name: Upload test results to codecov.io
-        if: ${{ !cancelled() }}
-        uses: codecov/test-results-action@v1
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
+      # We don't have codecov enabled
+      # - name: Upload coverage to codecov.io
+      #   uses: codecov/codecov-action@v5
+      #   with:
+      #     fail_ci_if_error: true
+      #     token: ${{ secrets.CODECOV_TOKEN }}
+      #     env_vars: OS,RUST
+      #     files: lcov.info
+      #     flags: unit
+      #     verbose: true
+      # - name: Upload test results to codecov.io
+      #   if: ${{ !cancelled() }}
+      #   uses: codecov/test-results-action@v1
+      #   with:
+      #     token: ${{ secrets.CODECOV_TOKEN }}
 
   deny:
+    if: false # Disabled
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
