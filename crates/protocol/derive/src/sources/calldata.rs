@@ -66,7 +66,7 @@ impl<CP: ChainProvider + Send> CalldataSource<CP> {
                 };
 
                 // Get the corresponding receipt, if the receipt status is false,
-                // that means it cant be valid batch inbox tx.
+                // that means it cannot be valid batch inbox tx.
                 // TODO: In future, we should add a conditional check that this should only be done
                 // for txs after Espresso migration.
                 let receipt: &Receipt = receipts.get(index)?;
