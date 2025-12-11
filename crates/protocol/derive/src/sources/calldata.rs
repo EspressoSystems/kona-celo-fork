@@ -126,7 +126,7 @@ mod tests {
     use super::*;
     use crate::{errors::PipelineErrorKind, test_utils::TestChainProvider};
     use alloc::{vec, vec::Vec};
-    use alloy_consensus::{Signed, TxEip2930, TxEip4844, TxEip4844Variant, TxEip7702,Eip658Value, TxLegacy};
+    use alloy_consensus::{Signed, TxEip2930, TxEip4844, TxEip4844Variant, TxEip7702, Eip658Value, TxLegacy};
     use alloy_primitives::{Address, Signature, TxKind, address};
 
 
