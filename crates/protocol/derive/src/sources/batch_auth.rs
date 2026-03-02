@@ -115,16 +115,12 @@ pub(crate) async fn collect_authenticated_batches<CP: ChainProvider + Send>(
     loop {
         // Check cache first
         if let Some(cached) = cache.get(&current_hash) {
-            for h in cached.iter() {
-                all_authenticated.insert(*h);
-            }
+            all_authenticated.extend(cached.iter());
         } else {
             // Cache miss: fetch receipts, extract events, cache the result
             let receipts = provider.receipts_by_hash(current_hash).await.map_err(Into::into)?;
             let events = collect_auth_events_from_receipts(&receipts, authenticator_addr);
-            for h in events.iter() {
-                all_authenticated.insert(*h);
-            }
+            all_authenticated.extend(events.iter());
             cache.put(current_hash, events);
         }
 
