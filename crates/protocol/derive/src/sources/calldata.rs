@@ -1,15 +1,19 @@
 //! CallData Source
 
-use crate::{ChainProvider, DataAvailabilityProvider, PipelineError, PipelineResult};
-
-use alloc::{boxed::Box, collections::VecDeque, vec::Vec};
-use alloy_consensus::{
-    Receipt, Transaction, TxEnvelope, TxReceipt
+use crate::{
+    ChainProvider, DataAvailabilityProvider, PipelineError, PipelineResult,
+    sources::batch_auth::{
+        BatchAuthConfig, collect_authenticated_batches, compute_calldata_batch_hash,
+        is_batch_authorized, new_batch_auth_cache,
+    },
 };
 
-use alloy_primitives::{Address, Bytes};
+use alloc::{boxed::Box, collections::BTreeSet, collections::VecDeque};
+use alloy_consensus::{Transaction, TxEnvelope};
+use alloy_primitives::{Address, B256, Bytes};
 use async_trait::async_trait;
 use kona_protocol::BlockInfo;
+use lru::LruCache;
 
 /// A data iterator that reads from calldata.
 #[derive(Debug, Clone)]
@@ -25,19 +29,35 @@ where
     pub calldata: VecDeque<Bytes>,
     /// Whether the calldata source is open.
     pub open: bool,
+    /// Batch authentication configuration. When `Some`, event-based batch authentication
+    /// is used. When `None`, legacy sender-based authentication is used.
+    pub batch_auth_config: Option<BatchAuthConfig>,
+    /// LRU cache for batch auth events, keyed by L1 block hash.
+    pub auth_cache: LruCache<B256, BTreeSet<B256>>,
 }
 
 impl<CP: ChainProvider + Send> CalldataSource<CP> {
     /// Creates a new calldata source.
-    pub const fn new(chain_provider: CP, batch_inbox_address: Address) -> Self {
-        Self { chain_provider, batch_inbox_address, calldata: VecDeque::new(), open: false }
+    pub fn new(
+        chain_provider: CP,
+        batch_inbox_address: Address,
+        batch_auth_config: Option<BatchAuthConfig>,
+    ) -> Self {
+        Self {
+            chain_provider,
+            batch_inbox_address,
+            calldata: VecDeque::new(),
+            open: false,
+            batch_auth_config,
+            auth_cache: new_batch_auth_cache(),
+        }
     }
 
     /// Loads the calldata into the source if it is not open.
     async fn load_calldata(
         &mut self,
         block_ref: &BlockInfo,
-        _batcher_address: Address,
+        batcher_address: Address,
     ) -> Result<(), CP::Error> {
         if self.open {
             return Ok(());
@@ -46,17 +66,31 @@ impl<CP: ChainProvider + Send> CalldataSource<CP> {
         let (_, txs) =
             self.chain_provider.block_info_and_transactions_by_hash(block_ref.hash).await?;
 
-        let mut receipts: Vec<Receipt> = Vec::new();
-
-        // only fetch receipts if there are transactions
-        if !txs.is_empty() {
-            receipts = self.chain_provider.receipts_by_hash(block_ref.hash).await?;
-        }
+        // Collect authenticated batch hashes from the lookback window when batch auth is enabled.
+        // We do this once per block and pass the set to the filter below.
+        let authenticated_hashes: BTreeSet<B256> = if let Some(ref config) = self.batch_auth_config
+        {
+            // collect_authenticated_batches returns a Result whose error type is
+            // PipelineErrorKind, not CP::Error. Since load_calldata returns CP::Error,
+            // we must handle the error here. On failure, we use an empty set which will
+            // cause all TEE batches to be rejected (fallback batcher may still pass via
+            // sender verification). This is conservative — batches that can't be verified
+            // are rejected.
+            collect_authenticated_batches(
+                &mut self.chain_provider,
+                block_ref,
+                config.authenticator_address,
+                &mut self.auth_cache,
+            )
+            .await
+            .unwrap_or_default()
+        } else {
+            BTreeSet::new()
+        };
 
         self.calldata = txs
             .iter()
-            .enumerate()
-            .filter_map(|(index, tx)| {
+            .filter_map(|tx| {
                 let (tx_kind, data) = match tx {
                     TxEnvelope::Legacy(tx) => (tx.tx().to(), tx.tx().input()),
                     TxEnvelope::Eip2930(tx) => (tx.tx().to(), tx.tx().input()),
@@ -64,25 +98,25 @@ impl<CP: ChainProvider + Send> CalldataSource<CP> {
                     _ => return None,
                 };
 
-                // Get the corresponding receipt, if the receipt status is false,
-                // that means it cant be valid batch inbox tx.
-                // TODO: In future, we should add a conditional check that this should only be done
-                // for txs after Espresso migration.
-                let receipt: &Receipt = receipts.get(index)?;
-                if !receipt.status() {
-                    return None;
-                }
                 let to = tx_kind?;
 
                 if to != self.batch_inbox_address {
                     return None;
                 }
 
-                // NOTE: contrary to a standard OP batcher, we can safely skip any verification related
-            	// to the sender of the transaction. Indeed, the Batch Inbox contract takes care of
-	            // ensuring the sender of the batch information is a legitimate batcher.
-                // Thus, the parameter `batcher_address` is not used anymore.
-	            // However, it is kept for compatibility with upstream code.
+                // Compute the batch hash for event-based authentication
+                let batch_hash = compute_calldata_batch_hash(data);
+
+                // Check authorization using either event-based or sender-based auth
+                if !is_batch_authorized(
+                    tx,
+                    batch_hash,
+                    self.batch_auth_config.as_ref(),
+                    &authenticated_hashes,
+                    batcher_address,
+                ) {
+                    return None;
+                }
 
                 Some(data.to_vec().into())
             })
@@ -126,9 +160,12 @@ mod tests {
     use crate::{errors::PipelineErrorKind, test_utils::TestChainProvider};
     use alloc::{vec, vec::Vec};
     use alloy_consensus::transaction::SignerRecoverable;
-    use alloy_consensus::{Signed, TxEip2930, TxEip4844, TxEip4844Variant, TxEip7702, Eip658Value, TxLegacy};
-    use alloy_primitives::{Address, Signature, TxKind, address};
-
+    use alloy_consensus::{
+        Eip658Value, Receipt, Signed, TxEip2930, TxEip4844, TxEip4844Variant, TxEip7702,
+        TxLegacy,
+    };
+    use alloy_primitives::{Address, Log, LogData, Signature, TxKind, address};
+    use crate::sources::batch_auth::batch_info_authenticated_topic;
 
     pub(crate) fn test_legacy_tx(to: Address) -> TxEnvelope {
         let sig = Signature::test_signature();
@@ -167,7 +204,25 @@ mod tests {
     }
 
     pub(crate) fn default_test_calldata_source() -> CalldataSource<TestChainProvider> {
-        CalldataSource::new(TestChainProvider::default(), Default::default())
+        CalldataSource::new(TestChainProvider::default(), Default::default(), None)
+    }
+
+    /// Creates a receipt with a `BatchInfoAuthenticated` event for the given commitment.
+    fn make_auth_receipt(authenticator_addr: Address, commitment: B256) -> Receipt {
+        let topic0 = batch_info_authenticated_topic();
+        let signer_topic = B256::ZERO;
+        let log = Log {
+            address: authenticator_addr,
+            data: LogData::new_unchecked(
+                vec![topic0, commitment, signer_topic],
+                Default::default(),
+            ),
+        };
+        Receipt {
+            status: Eip658Value::Eip658(true),
+            logs: vec![log],
+            ..Default::default()
+        }
     }
 
     #[tokio::test]
@@ -211,37 +266,47 @@ mod tests {
         let block_info = BlockInfo::default();
         let tx = test_legacy_tx(batch_inbox_address);
         source.chain_provider.insert_block_with_transactions(0, block_info, vec![tx.clone()]);
-        let receipt = Receipt {
-            cumulative_gas_used: 42000,
-            status: Eip658Value::Eip658(true),
-            ..Default::default()
-        };
-        source.chain_provider.insert_receipts(block_info.hash, vec![receipt]);
         assert!(!source.open); // Source is not open by default.
         assert!(source.load_calldata(&BlockInfo::default(), Address::ZERO).await.is_ok());
         assert!(source.calldata.is_empty());
         assert!(source.open);
     }
 
+    // In legacy mode (no batch auth), sender must match batcher_address.
     #[tokio::test]
-    async fn test_load_calldata_valid_legacy_tx() {
+    async fn test_load_calldata_valid_legacy_tx_sender_check() {
         let batch_inbox_address = address!("0123456789012345678901234567890123456789");
         let mut source = default_test_calldata_source();
         source.batch_inbox_address = batch_inbox_address;
         let tx = test_legacy_tx(batch_inbox_address);
         let block_info = BlockInfo::default();
         source.chain_provider.insert_block_with_transactions(0, block_info, vec![tx.clone()]);
-        let receipt = Receipt {
-            cumulative_gas_used: 42000,
-            status: Eip658Value::Eip658(true),
-            ..Default::default()
-        };
-        source.chain_provider.insert_receipts(block_info.hash, vec![receipt]);
-        assert!(!source.open); // Source is not open by default.
+        assert!(!source.open);
+        // Use the correct signer address as batcher_address
         assert!(
-            source.load_calldata(&BlockInfo::default(), tx.recover_signer().unwrap()).await.is_ok()
+            source
+                .load_calldata(&BlockInfo::default(), tx.recover_signer().unwrap())
+                .await
+                .is_ok()
         );
         assert!(!source.calldata.is_empty()); // Calldata is NOT empty.
+        assert!(source.open);
+    }
+
+    // In legacy mode, wrong batcher_address should reject.
+    #[tokio::test]
+    async fn test_load_calldata_wrong_batcher_address_rejected() {
+        let batch_inbox_address = address!("0123456789012345678901234567890123456789");
+        let mut source = default_test_calldata_source();
+        source.batch_inbox_address = batch_inbox_address;
+        let tx = test_legacy_tx(batch_inbox_address);
+        let block_info = BlockInfo::default();
+        source.chain_provider.insert_block_with_transactions(0, block_info, vec![tx.clone()]);
+        assert!(!source.open);
+        // Use wrong batcher address
+        let wrong_batcher = address!("0000000000000000000000000000000000000001");
+        assert!(source.load_calldata(&BlockInfo::default(), wrong_batcher).await.is_ok());
+        assert!(source.calldata.is_empty()); // Rejected: wrong sender
         assert!(source.open);
     }
 
@@ -253,15 +318,12 @@ mod tests {
         let tx = test_eip2930_tx(batch_inbox_address);
         let block_info = BlockInfo::default();
         source.chain_provider.insert_block_with_transactions(0, block_info, vec![tx.clone()]);
-        let receipt = Receipt {
-            cumulative_gas_used: 42000,
-            status: Eip658Value::Eip658(true),
-            ..Default::default()
-        };
-        source.chain_provider.insert_receipts(block_info.hash, vec![receipt]);
-        assert!(!source.open); // Source is not open by default.
+        assert!(!source.open);
         assert!(
-            source.load_calldata(&BlockInfo::default(), tx.recover_signer().unwrap()).await.is_ok()
+            source
+                .load_calldata(&BlockInfo::default(), tx.recover_signer().unwrap())
+                .await
+                .is_ok()
         );
         assert!(!source.calldata.is_empty()); // Calldata is NOT empty.
         assert!(source.open);
@@ -275,15 +337,12 @@ mod tests {
         let tx = test_blob_tx(batch_inbox_address);
         let block_info = BlockInfo::default();
         source.chain_provider.insert_block_with_transactions(0, block_info, vec![tx.clone()]);
-        let receipt = Receipt {
-            cumulative_gas_used: 42000,
-            status: Eip658Value::Eip658(true),
-            ..Default::default()
-        };
-        source.chain_provider.insert_receipts(block_info.hash, vec![receipt]);
-        assert!(!source.open); // Source is not open by default.
+        assert!(!source.open);
         assert!(
-            source.load_calldata(&BlockInfo::default(), tx.recover_signer().unwrap()).await.is_ok()
+            source
+                .load_calldata(&BlockInfo::default(), tx.recover_signer().unwrap())
+                .await
+                .is_ok()
         );
         assert!(source.calldata.is_empty());
         assert!(source.open);
@@ -297,15 +356,12 @@ mod tests {
         let tx = test_eip7702_tx(batch_inbox_address);
         let block_info = BlockInfo::default();
         source.chain_provider.insert_block_with_transactions(0, block_info, vec![tx.clone()]);
-        let receipt = Receipt {
-            cumulative_gas_used: 42000,
-            status: Eip658Value::Eip658(true),
-            ..Default::default()
-        };
-        source.chain_provider.insert_receipts(block_info.hash, vec![receipt]);
-        assert!(!source.open); // Source is not open by default.
+        assert!(!source.open);
         assert!(
-            source.load_calldata(&BlockInfo::default(), tx.recover_signer().unwrap()).await.is_ok()
+            source
+                .load_calldata(&BlockInfo::default(), tx.recover_signer().unwrap())
+                .await
+                .is_ok()
         );
         assert!(source.calldata.is_empty());
         assert!(source.open);
@@ -320,52 +376,120 @@ mod tests {
         ));
     }
 
-
-     // Test if the receipt status true causes the calldata to be processed.
+    // Test event-based batch authentication: TEE batcher path.
     #[tokio::test]
-    async fn test_non_empty_calldata_if_receipt_status_true() {
+    async fn test_load_calldata_batch_auth_tee_path() {
         let batch_inbox_address = address!("0123456789012345678901234567890123456789");
-        let mut source = default_test_calldata_source();
-        source.batch_inbox_address = batch_inbox_address;
-        let tx = test_eip2930_tx(batch_inbox_address);
+        let authenticator_addr = address!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+
+        let config = BatchAuthConfig {
+            authenticator_address: authenticator_addr,
+            fallback_batcher_address: None,
+        };
+        let mut source = CalldataSource::new(
+            TestChainProvider::default(),
+            batch_inbox_address,
+            Some(config),
+        );
+
+        let tx = test_legacy_tx(batch_inbox_address);
         let block_info = BlockInfo::default();
         source.chain_provider.insert_block_with_transactions(0, block_info, vec![tx.clone()]);
-        // Insert a receipt with status true.
-        let receipt = Receipt {
-            cumulative_gas_used: 42000,
-            status: Eip658Value::Eip658(true),
+
+        // Compute the expected batch hash for the tx data (empty calldata)
+        let batch_hash = compute_calldata_batch_hash(b"");
+
+        // Insert a receipt with a matching BatchInfoAuthenticated event
+        let auth_receipt = make_auth_receipt(authenticator_addr, batch_hash);
+        source.chain_provider.insert_receipts(block_info.hash, vec![auth_receipt]);
+
+        // Insert a header for the block so the lookback traversal can resolve it
+        let header = alloy_consensus::Header {
+            number: 0,
             ..Default::default()
         };
-        source.chain_provider.insert_receipts(block_info.hash, vec![receipt]);
-        assert!(!source.open); // Source is not open by default.
-        assert!(
-            source.load_calldata(&BlockInfo::default(), tx.recover_signer().unwrap()).await.is_ok()
-        );
-        assert!(!source.calldata.is_empty());
+        source.chain_provider.insert_header(block_info.hash, header);
+
+        assert!(source.load_calldata(&block_info, Address::ZERO).await.is_ok());
+        assert!(!source.calldata.is_empty()); // Authenticated via event
         assert!(source.open);
     }
 
-    // Test if the receipt status false causes the calldata to be ignored.
+    // Test event-based batch authentication: batch not authenticated, no fallback.
     #[tokio::test]
-    async fn test_empty_calldata_if_receipt_status_false() {
+    async fn test_load_calldata_batch_auth_not_authenticated() {
         let batch_inbox_address = address!("0123456789012345678901234567890123456789");
-        let mut source = default_test_calldata_source();
-        source.batch_inbox_address = batch_inbox_address;
-        let tx = test_eip2930_tx(batch_inbox_address);
+        let authenticator_addr = address!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+
+        let config = BatchAuthConfig {
+            authenticator_address: authenticator_addr,
+            fallback_batcher_address: None,
+        };
+        let mut source = CalldataSource::new(
+            TestChainProvider::default(),
+            batch_inbox_address,
+            Some(config),
+        );
+
+        let tx = test_legacy_tx(batch_inbox_address);
         let block_info = BlockInfo::default();
         source.chain_provider.insert_block_with_transactions(0, block_info, vec![tx.clone()]);
-        // Insert a receipt with status false.
-        let receipt = Receipt {
-            cumulative_gas_used: 42000,
-            status: Eip658Value::Eip658(false),
+
+        // Insert empty receipts (no auth event)
+        let empty_receipt = Receipt {
+            status: Eip658Value::Eip658(true),
             ..Default::default()
         };
-        source.chain_provider.insert_receipts(block_info.hash, vec![receipt]);
-        assert!(!source.open); // Source is not open by default.
-        assert!(
-            source.load_calldata(&BlockInfo::default(), tx.recover_signer().unwrap()).await.is_ok()
+        source.chain_provider.insert_receipts(block_info.hash, vec![empty_receipt]);
+
+        let header = alloy_consensus::Header {
+            number: 0,
+            ..Default::default()
+        };
+        source.chain_provider.insert_header(block_info.hash, header);
+
+        assert!(source.load_calldata(&block_info, Address::ZERO).await.is_ok());
+        assert!(source.calldata.is_empty()); // Not authenticated
+        assert!(source.open);
+    }
+
+    // Test event-based batch authentication: fallback batcher path.
+    #[tokio::test]
+    async fn test_load_calldata_batch_auth_fallback_batcher() {
+        let batch_inbox_address = address!("0123456789012345678901234567890123456789");
+        let authenticator_addr = address!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+
+        let tx = test_legacy_tx(batch_inbox_address);
+        let fallback_batcher = tx.recover_signer().unwrap();
+
+        let config = BatchAuthConfig {
+            authenticator_address: authenticator_addr,
+            fallback_batcher_address: Some(fallback_batcher),
+        };
+        let mut source = CalldataSource::new(
+            TestChainProvider::default(),
+            batch_inbox_address,
+            Some(config),
         );
-        assert!(source.calldata.is_empty());
+
+        let block_info = BlockInfo::default();
+        source.chain_provider.insert_block_with_transactions(0, block_info, vec![tx.clone()]);
+
+        // Insert empty receipts (no auth event)
+        let empty_receipt = Receipt {
+            status: Eip658Value::Eip658(true),
+            ..Default::default()
+        };
+        source.chain_provider.insert_receipts(block_info.hash, vec![empty_receipt]);
+
+        let header = alloy_consensus::Header {
+            number: 0,
+            ..Default::default()
+        };
+        source.chain_provider.insert_header(block_info.hash, header);
+
+        assert!(source.load_calldata(&block_info, Address::ZERO).await.is_ok());
+        assert!(!source.calldata.is_empty()); // Authorized via fallback sender
         assert!(source.open);
     }
 }

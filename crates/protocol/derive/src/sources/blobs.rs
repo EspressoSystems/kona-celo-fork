@@ -3,15 +3,20 @@
 use crate::{
     BlobData, BlobProvider, BlobProviderError, ChainProvider, DataAvailabilityProvider,
     PipelineError, PipelineResult,
+    sources::batch_auth::{
+        BatchAuthConfig, collect_authenticated_batches, compute_blob_batch_hash,
+        compute_calldata_batch_hash, is_batch_authorized, new_batch_auth_cache,
+    },
 };
-use alloc::{boxed::Box, string::ToString, vec::Vec};
+use alloc::{boxed::Box, collections::BTreeSet, string::ToString, vec::Vec};
 use alloy_consensus::{
-    Transaction, TxEip4844Variant, TxEnvelope, TxType, transaction::SignerRecoverable,
+    Transaction, TxEip4844Variant, TxEnvelope, TxType,
 };
 use alloy_eips::eip4844::IndexedBlobHash;
-use alloy_primitives::{Address, Bytes};
+use alloy_primitives::{Address, B256, Bytes};
 use async_trait::async_trait;
 use kona_protocol::BlockInfo;
+use lru::LruCache;
 
 /// A data iterator that reads from a blob.
 #[derive(Debug, Clone)]
@@ -30,6 +35,11 @@ where
     pub data: Vec<BlobData>,
     /// Whether the source is open.
     pub open: bool,
+    /// Batch authentication configuration. When `Some`, event-based batch authentication
+    /// is used. When `None`, legacy sender-based authentication is used.
+    pub batch_auth_config: Option<BatchAuthConfig>,
+    /// LRU cache for batch auth events, keyed by L1 block hash.
+    pub auth_cache: LruCache<B256, BTreeSet<B256>>,
 }
 
 impl<F, B> BlobSource<F, B>
@@ -38,15 +48,37 @@ where
     B: BlobProvider + Send,
 {
     /// Creates a new blob source.
-    pub const fn new(chain_provider: F, blob_fetcher: B, batcher_address: Address) -> Self {
-        Self { chain_provider, blob_fetcher, batcher_address, data: Vec::new(), open: false }
+    pub fn new(
+        chain_provider: F,
+        blob_fetcher: B,
+        batcher_address: Address,
+        batch_auth_config: Option<BatchAuthConfig>,
+    ) -> Self {
+        Self {
+            chain_provider,
+            blob_fetcher,
+            batcher_address,
+            data: Vec::new(),
+            open: false,
+            batch_auth_config,
+            auth_cache: new_batch_auth_cache(),
+        }
     }
 
+    /// Extracts blob data and indexed blob hashes from the given transactions.
+    ///
+    /// When `authenticated_hashes` is provided (event-based auth), each transaction is checked
+    /// against the authenticated set or the fallback batcher address. When `None` (legacy mode),
+    /// each transaction's sender is checked against `batcher_address`.
     fn extract_blob_data(
         &self,
         txs: Vec<TxEnvelope>,
         batcher_address: Address,
+        authenticated_hashes: Option<&BTreeSet<B256>>,
     ) -> (Vec<BlobData>, Vec<IndexedBlobHash>) {
+        let empty_set = BTreeSet::new();
+        let auth_hashes = authenticated_hashes.unwrap_or(&empty_set);
+
         let mut index: u64 = 0;
         let mut data = Vec::new();
         let mut hashes = Vec::new();
@@ -72,10 +104,28 @@ where
                 index += blob_hashes.map_or(0, |h| h.len() as u64);
                 continue;
             }
-            if tx.recover_signer().unwrap_or_default() != batcher_address {
+
+            // Compute the batch hash and check authorization.
+            // For blob txs: hash is keccak256(concat(blob_versioned_hashes))
+            // For calldata txs: hash is keccak256(calldata)
+            let batch_hash = if let Some(ref bh) = blob_hashes {
+                let hash_refs: Vec<B256> = bh.clone();
+                compute_blob_batch_hash(&hash_refs)
+            } else {
+                compute_calldata_batch_hash(&calldata)
+            };
+
+            if !is_batch_authorized(
+                &tx,
+                batch_hash,
+                self.batch_auth_config.as_ref(),
+                auth_hashes,
+                batcher_address,
+            ) {
                 index += blob_hashes.map_or(0, |h| h.len() as u64);
                 continue;
             }
+
             if tx.tx_type() != TxType::Eip4844 {
                 let blob_data = BlobData { data: None, calldata: Some(calldata.to_vec().into()) };
                 data.push(blob_data);
@@ -128,7 +178,25 @@ where
             .await
             .map_err(|e| BlobProviderError::Backend(e.to_string()))?;
 
-        let (mut data, blob_hashes) = self.extract_blob_data(info.1, batcher_address);
+        // Collect authenticated batch hashes when batch auth is enabled.
+        let authenticated_hashes: Option<BTreeSet<B256>> =
+            if let Some(ref config) = self.batch_auth_config {
+                Some(
+                    collect_authenticated_batches(
+                        &mut self.chain_provider,
+                        block_ref,
+                        config.authenticator_address,
+                        &mut self.auth_cache,
+                    )
+                    .await
+                    .unwrap_or_default(),
+                )
+            } else {
+                None
+            };
+
+        let (mut data, blob_hashes) =
+            self.extract_blob_data(info.1, batcher_address, authenticated_hashes.as_ref());
 
         // If there are no hashes, set the calldata and return.
         if blob_hashes.is_empty() {
@@ -226,7 +294,7 @@ pub(crate) mod tests {
         let chain_provider = TestChainProvider::default();
         let blob_fetcher = TestBlobProvider::default();
         let batcher_address = Address::default();
-        BlobSource::new(chain_provider, blob_fetcher, batcher_address)
+        BlobSource::new(chain_provider, blob_fetcher, batcher_address, None)
     }
 
     pub(crate) fn valid_blob_txs() -> Vec<TxEnvelope> {
