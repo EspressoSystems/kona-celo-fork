@@ -23,7 +23,7 @@ use crate::{ChainProvider, PipelineErrorKind};
 use alloc::{collections::BTreeSet, vec::Vec};
 use alloy_consensus::transaction::SignerRecoverable;
 use alloy_consensus::{Receipt, TxEnvelope, TxReceipt};
-use alloy_primitives::{Address, B256, keccak256};
+use alloy_primitives::{Address, B256, b256, keccak256};
 use kona_protocol::BlockInfo;
 use lru::LruCache;
 
@@ -34,9 +34,8 @@ pub(crate) const BATCH_AUTH_LOOKBACK_WINDOW: u64 = 100;
 ///
 /// This is the event emitted by the `BatchAuthenticator` contract when a batch is authenticated.
 /// The first indexed topic is the commitment hash, the second is the signer address.
-pub(crate) fn batch_info_authenticated_topic() -> B256 {
-    keccak256("BatchInfoAuthenticated(bytes32,address)")
-}
+pub(crate) const BATCH_INFO_AUTHENTICATED_TOPIC: B256 =
+    b256!("731978a77d438b0ea35a9034fb28d9cf9372e1649f18c213110adcfab65c5c5c");
 
 /// Configuration for event-based batch authentication.
 #[derive(Debug, Clone)]
@@ -72,7 +71,7 @@ pub(crate) fn collect_auth_events_from_receipts(
     receipts: &[Receipt],
     authenticator_addr: Address,
 ) -> BTreeSet<B256> {
-    let topic0 = batch_info_authenticated_topic();
+    let topic0 = BATCH_INFO_AUTHENTICATED_TOPIC;
     let mut result = BTreeSet::new();
     for receipt in receipts {
         if !receipt.status() {
@@ -196,7 +195,7 @@ mod tests {
     use alloy_primitives::{Address, Log, LogData, Signature, TxKind, address, b256};
 
     fn make_auth_receipt(authenticator_addr: Address, commitment: B256) -> Receipt {
-        let topic0 = batch_info_authenticated_topic();
+        let topic0 = BATCH_INFO_AUTHENTICATED_TOPIC;
         let signer_topic = B256::ZERO; // signer address as topic
         let log = Log {
             address: authenticator_addr,
@@ -209,7 +208,7 @@ mod tests {
     }
 
     fn make_failed_auth_receipt(authenticator_addr: Address, commitment: B256) -> Receipt {
-        let topic0 = batch_info_authenticated_topic();
+        let topic0 = BATCH_INFO_AUTHENTICATED_TOPIC;
         let signer_topic = B256::ZERO;
         let log = Log {
             address: authenticator_addr,
@@ -350,12 +349,11 @@ mod tests {
     }
 
     #[test]
-    fn test_batch_info_authenticated_topic_is_deterministic() {
-        let t1 = batch_info_authenticated_topic();
-        let t2 = batch_info_authenticated_topic();
-        assert_eq!(t1, t2);
-        // Should be keccak256 of the event signature
-        assert_eq!(t1, keccak256("BatchInfoAuthenticated(bytes32,address)"));
+    fn test_batch_info_authenticated_topic_is_correct() {
+        assert_eq!(
+            BATCH_INFO_AUTHENTICATED_TOPIC,
+            keccak256("BatchInfoAuthenticated(bytes32,address)")
+        );
     }
 
     #[test]

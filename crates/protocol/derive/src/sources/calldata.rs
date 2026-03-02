@@ -165,7 +165,7 @@ mod tests {
         TxLegacy,
     };
     use alloy_primitives::{Address, Log, LogData, Signature, TxKind, address};
-    use crate::sources::batch_auth::batch_info_authenticated_topic;
+    use crate::sources::batch_auth::BATCH_INFO_AUTHENTICATED_TOPIC;
 
     pub(crate) fn test_legacy_tx(to: Address) -> TxEnvelope {
         let sig = Signature::test_signature();
@@ -209,7 +209,7 @@ mod tests {
 
     /// Creates a receipt with a `BatchInfoAuthenticated` event for the given commitment.
     fn make_auth_receipt(authenticator_addr: Address, commitment: B256) -> Receipt {
-        let topic0 = batch_info_authenticated_topic();
+        let topic0 = BATCH_INFO_AUTHENTICATED_TOPIC;
         let signer_topic = B256::ZERO;
         let log = Log {
             address: authenticator_addr,
