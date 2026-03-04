@@ -2,8 +2,8 @@
 //!
 //! This module implements event-based batch authentication for the Espresso integration.
 //! Instead of relying on an on-chain BatchInbox contract to verify batches, the derivation
-//! pipeline scans L1 receipts for `BatchInfoAuthenticated(bytes32 indexed commitment, address
-//! indexed signer)` events emitted by the `BatchAuthenticator` contract within a lookback window.
+//! pipeline scans L1 receipts for `BatchInfoAuthenticated(bytes32 indexed commitment)` events
+//! emitted by the `BatchAuthenticator` contract within a lookback window.
 //!
 //! Two authorization paths are supported:
 //! 1. **TEE batcher**: Must have a matching `BatchInfoAuthenticated` event where the commitment
@@ -30,12 +30,12 @@ use lru::LruCache;
 /// Number of L1 blocks before the batch submission to scan for a `BatchInfoAuthenticated` event.
 pub(crate) const BATCH_AUTH_LOOKBACK_WINDOW: u64 = 100;
 
-/// The `keccak256("BatchInfoAuthenticated(bytes32,address)")` event topic.
+/// The `keccak256("BatchInfoAuthenticated(bytes32)")` event topic.
 ///
 /// This is the event emitted by the `BatchAuthenticator` contract when a batch is authenticated.
-/// The first indexed topic is the commitment hash, the second is the signer address.
+/// The first indexed topic is the commitment hash.
 pub(crate) const BATCH_INFO_AUTHENTICATED_TOPIC: B256 =
-    b256!("731978a77d438b0ea35a9034fb28d9cf9372e1649f18c213110adcfab65c5c5c");
+    b256!("ee0d07d204d979d28885955e59a46f754c4db7378b7df1a95123525aac6e3f80");
 
 /// Configuration for event-based batch authentication.
 #[derive(Debug, Clone)]
@@ -196,26 +196,18 @@ mod tests {
 
     fn make_auth_receipt(authenticator_addr: Address, commitment: B256) -> Receipt {
         let topic0 = BATCH_INFO_AUTHENTICATED_TOPIC;
-        let signer_topic = B256::ZERO; // signer address as topic
         let log = Log {
             address: authenticator_addr,
-            data: LogData::new_unchecked(
-                vec![topic0, commitment, signer_topic],
-                Default::default(),
-            ),
+            data: LogData::new_unchecked(vec![topic0, commitment], Default::default()),
         };
         Receipt { status: Eip658Value::Eip658(true), logs: vec![log], ..Default::default() }
     }
 
     fn make_failed_auth_receipt(authenticator_addr: Address, commitment: B256) -> Receipt {
         let topic0 = BATCH_INFO_AUTHENTICATED_TOPIC;
-        let signer_topic = B256::ZERO;
         let log = Log {
             address: authenticator_addr,
-            data: LogData::new_unchecked(
-                vec![topic0, commitment, signer_topic],
-                Default::default(),
-            ),
+            data: LogData::new_unchecked(vec![topic0, commitment], Default::default()),
         };
         Receipt { status: Eip658Value::Eip658(false), logs: vec![log], ..Default::default() }
     }
@@ -352,7 +344,7 @@ mod tests {
     fn test_batch_info_authenticated_topic_is_correct() {
         assert_eq!(
             BATCH_INFO_AUTHENTICATED_TOPIC,
-            keccak256("BatchInfoAuthenticated(bytes32,address)")
+            keccak256("BatchInfoAuthenticated(bytes32)")
         );
     }
 
