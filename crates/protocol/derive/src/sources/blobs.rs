@@ -4,8 +4,8 @@ use crate::{
     BlobData, BlobProvider, BlobProviderError, ChainProvider, DataAvailabilityProvider,
     PipelineError, PipelineResult,
     sources::batch_auth::{
-        BatchAuthConfig, collect_authenticated_batches, compute_blob_batch_hash,
-        compute_calldata_batch_hash, is_batch_authorized, new_batch_auth_cache,
+        BatchAuthCache, BatchAuthConfig, collect_authenticated_batches, compute_blob_batch_hash,
+        compute_calldata_batch_hash, is_batch_authorized,
     },
 };
 use alloc::{boxed::Box, collections::BTreeSet, string::ToString, vec::Vec};
@@ -16,7 +16,6 @@ use alloy_eips::eip4844::IndexedBlobHash;
 use alloy_primitives::{Address, B256, Bytes};
 use async_trait::async_trait;
 use kona_protocol::BlockInfo;
-use lru::LruCache;
 
 /// A data iterator that reads from a blob.
 #[derive(Debug, Clone)]
@@ -38,8 +37,8 @@ where
     /// Batch authentication configuration. When `Some`, event-based batch authentication
     /// is used. When `None`, legacy sender-based authentication is used.
     pub batch_auth_config: Option<BatchAuthConfig>,
-    /// LRU cache for batch auth events, keyed by L1 block hash.
-    pub auth_cache: LruCache<B256, BTreeSet<B256>>,
+    /// LRU caches for batch auth lookback window traversal (receipts + headers).
+    pub(crate) auth_cache: BatchAuthCache,
 }
 
 impl<F, B> BlobSource<F, B>
@@ -61,7 +60,7 @@ where
             data: Vec::new(),
             open: false,
             batch_auth_config,
-            auth_cache: new_batch_auth_cache(),
+            auth_cache: BatchAuthCache::new(),
         }
     }
 

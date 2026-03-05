@@ -105,22 +105,22 @@ pub(crate) async fn collect_authenticated_batches<CP: ChainProvider + Send>(
     provider: &mut CP,
     block_ref: &BlockInfo,
     authenticator_addr: Address,
-    cache: &mut LruCache<B256, BTreeSet<B256>>,
+    cache: &mut BatchAuthCache,
 ) -> Result<BTreeSet<B256>, PipelineErrorKind> {
     let mut all_authenticated = BTreeSet::new();
     let mut current_hash = block_ref.hash;
     let mut current_number = block_ref.number;
 
     loop {
-        // Check cache first
-        if let Some(cached) = cache.get(&current_hash) {
+        // Check receipt cache first
+        if let Some(cached) = cache.receipts.get(&current_hash) {
             all_authenticated.extend(cached.iter());
         } else {
             // Cache miss: fetch receipts, extract events, cache the result
             let receipts = provider.receipts_by_hash(current_hash).await.map_err(Into::into)?;
             let events = collect_auth_events_from_receipts(&receipts, authenticator_addr);
             all_authenticated.extend(events.iter());
-            cache.put(current_hash, events);
+            cache.receipts.put(current_hash, events);
         }
 
         if current_number == 0 || block_ref.number - current_number >= BATCH_AUTH_LOOKBACK_WINDOW {
@@ -128,21 +128,41 @@ pub(crate) async fn collect_authenticated_batches<CP: ChainProvider + Send>(
         }
 
         // Walk backward using header to get parent hash
-        let header = provider.header_by_hash(current_hash).await.map_err(Into::into)?;
-        current_hash = header.parent_hash;
+        let parent_hash = if let Some(&cached_parent) = cache.headers.get(&current_hash) {
+            cached_parent
+        } else {
+            let header = provider.header_by_hash(current_hash).await.map_err(Into::into)?;
+            cache.headers.put(current_hash, header.parent_hash);
+            header.parent_hash
+        };
+        current_hash = parent_hash;
         current_number = current_number.saturating_sub(1);
     }
 
     Ok(all_authenticated)
 }
 
-/// Creates an LRU cache for batch auth events, sized slightly larger than the lookback window
+/// LRU caches used during the batch authentication lookback window traversal.
+///
+/// Bundles the receipt-event cache and the header (block hash → parent hash) cache.
+/// Both caches are sized slightly larger than [`BATCH_AUTH_LOOKBACK_WINDOW`]
 /// to avoid thrashing at the boundary.
-pub(crate) fn new_batch_auth_cache() -> LruCache<B256, BTreeSet<B256>> {
-    LruCache::new(
-        core::num::NonZeroUsize::new((BATCH_AUTH_LOOKBACK_WINDOW as usize) + 16)
-            .expect("cache size must be non-zero"),
-    )
+#[derive(Debug, Clone)]
+pub(crate) struct BatchAuthCache {
+    /// Authenticated batch commitment hashes extracted from receipts, keyed by L1 block hash.
+    pub receipts: LruCache<B256, BTreeSet<B256>>,
+    /// Block parent hashes keyed by block hash
+    pub headers: LruCache<B256, B256>,
+}
+
+impl BatchAuthCache {
+    /// Creates a new [`BatchAuthCache`] with both caches sized to
+    /// `BATCH_AUTH_LOOKBACK_WINDOW + 16`.
+    pub(crate) fn new() -> Self {
+        let cap = core::num::NonZeroUsize::new((BATCH_AUTH_LOOKBACK_WINDOW as usize) + 16)
+            .expect("cache size must be non-zero");
+        Self { receipts: LruCache::new(cap), headers: LruCache::new(cap) }
+    }
 }
 
 /// Checks whether a batch transaction is authorized, using either event-based authentication
@@ -342,16 +362,16 @@ mod tests {
 
     #[test]
     fn test_batch_info_authenticated_topic_is_correct() {
-        assert_eq!(
-            BATCH_INFO_AUTHENTICATED_TOPIC,
-            keccak256("BatchInfoAuthenticated(bytes32)")
-        );
+        assert_eq!(BATCH_INFO_AUTHENTICATED_TOPIC, keccak256("BatchInfoAuthenticated(bytes32)"));
     }
 
     #[test]
     fn test_new_batch_auth_cache() {
-        let cache = new_batch_auth_cache();
-        assert_eq!(cache.len(), 0);
-        assert_eq!(cache.cap().get(), (BATCH_AUTH_LOOKBACK_WINDOW as usize) + 16);
+        let cache = BatchAuthCache::new();
+        let expected_cap = (BATCH_AUTH_LOOKBACK_WINDOW as usize) + 16;
+        assert_eq!(cache.receipts.len(), 0);
+        assert_eq!(cache.receipts.cap().get(), expected_cap);
+        assert_eq!(cache.headers.len(), 0);
+        assert_eq!(cache.headers.cap().get(), expected_cap);
     }
 }
