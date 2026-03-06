@@ -185,6 +185,10 @@ pub(crate) fn is_batch_authorized(
     match auth_config {
         Some(config) => {
             // Event-based authentication: TEE batcher must have an auth event
+            // in the lookback window. If the gap between authentication transaction
+            // and the batch data is more than the lookback window, it's batcher's
+            // responsibility to detect this and re-submit the authentication transaction
+            // and batch data.
             if authenticated_hashes.contains(&batch_hash) {
                 return true;
             }
