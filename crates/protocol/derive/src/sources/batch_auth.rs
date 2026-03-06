@@ -157,9 +157,9 @@ pub(crate) struct BatchAuthCache {
 
 impl BatchAuthCache {
     /// Creates a new [`BatchAuthCache`] with both caches sized to
-    /// `BATCH_AUTH_LOOKBACK_WINDOW + 16`.
+    /// `BATCH_AUTH_LOOKBACK_WINDOW + 2`.
     pub(crate) fn new() -> Self {
-        let cap = core::num::NonZeroUsize::new((BATCH_AUTH_LOOKBACK_WINDOW as usize) + 16)
+        let cap = core::num::NonZeroUsize::new((BATCH_AUTH_LOOKBACK_WINDOW as usize) + 2)
             .expect("cache size must be non-zero");
         Self { receipts: LruCache::new(cap), headers: LruCache::new(cap) }
     }
@@ -372,7 +372,7 @@ mod tests {
     #[test]
     fn test_new_batch_auth_cache() {
         let cache = BatchAuthCache::new();
-        let expected_cap = (BATCH_AUTH_LOOKBACK_WINDOW as usize) + 16;
+        let expected_cap = (BATCH_AUTH_LOOKBACK_WINDOW as usize) + 2;
         assert_eq!(cache.receipts.len(), 0);
         assert_eq!(cache.receipts.cap().get(), expected_cap);
         assert_eq!(cache.headers.len(), 0);
