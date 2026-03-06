@@ -18,7 +18,7 @@
 //! compatible with the op-program fault proof environment, which can only access L1 block headers,
 //! transactions, receipts, and blobs — not contract state.
 
-use crate::{ChainProvider, PipelineErrorKind};
+use crate::ChainProvider;
 
 use alloc::{collections::BTreeSet, vec::Vec};
 use alloy_consensus::transaction::SignerRecoverable;
@@ -106,7 +106,7 @@ pub(crate) async fn collect_authenticated_batches<CP: ChainProvider + Send>(
     block_ref: &BlockInfo,
     authenticator_addr: Address,
     cache: &mut BatchAuthCache,
-) -> Result<BTreeSet<B256>, PipelineErrorKind> {
+) -> Result<BTreeSet<B256>, CP::Error> {
     let mut all_authenticated = BTreeSet::new();
     let mut current_hash = block_ref.hash;
     let mut current_number = block_ref.number;
@@ -117,7 +117,7 @@ pub(crate) async fn collect_authenticated_batches<CP: ChainProvider + Send>(
             all_authenticated.extend(cached.iter());
         } else {
             // Cache miss: fetch receipts, extract events, cache the result
-            let receipts = provider.receipts_by_hash(current_hash).await.map_err(Into::into)?;
+            let receipts = provider.receipts_by_hash(current_hash).await?;
             let events = collect_auth_events_from_receipts(&receipts, authenticator_addr);
             all_authenticated.extend(events.iter());
             cache.receipts.put(current_hash, events);
@@ -131,7 +131,7 @@ pub(crate) async fn collect_authenticated_batches<CP: ChainProvider + Send>(
         let parent_hash = if let Some(&cached_parent) = cache.headers.get(&current_hash) {
             cached_parent
         } else {
-            let header = provider.header_by_hash(current_hash).await.map_err(Into::into)?;
+            let header = provider.header_by_hash(current_hash).await?;
             cache.headers.put(current_hash, header.parent_hash);
             header.parent_hash
         };

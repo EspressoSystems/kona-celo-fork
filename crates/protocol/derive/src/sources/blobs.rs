@@ -9,9 +9,7 @@ use crate::{
     },
 };
 use alloc::{boxed::Box, collections::BTreeSet, string::ToString, vec::Vec};
-use alloy_consensus::{
-    Transaction, TxEip4844Variant, TxEnvelope, TxType,
-};
+use alloy_consensus::{Transaction, TxEip4844Variant, TxEnvelope, TxType};
 use alloy_eips::eip4844::IndexedBlobHash;
 use alloy_primitives::{Address, B256, Bytes};
 use async_trait::async_trait;
@@ -188,7 +186,7 @@ where
                         &mut self.auth_cache,
                     )
                     .await
-                    .unwrap_or_default(),
+                    .map_err(|e| BlobProviderError::Backend(e.to_string()))?,
                 )
             } else {
                 None

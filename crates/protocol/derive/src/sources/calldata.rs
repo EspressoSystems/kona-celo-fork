@@ -69,20 +69,13 @@ impl<CP: ChainProvider + Send> CalldataSource<CP> {
         // We do this once per block and pass the set to the filter below.
         let authenticated_hashes: BTreeSet<B256> = if let Some(ref config) = self.batch_auth_config
         {
-            // collect_authenticated_batches returns a Result whose error type is
-            // PipelineErrorKind, not CP::Error. Since load_calldata returns CP::Error,
-            // we must handle the error here. On failure, we use an empty set which will
-            // cause all TEE batches to be rejected (fallback batcher may still pass via
-            // sender verification). This is conservative — batches that can't be verified
-            // are rejected.
             collect_authenticated_batches(
                 &mut self.chain_provider,
                 block_ref,
                 config.authenticator_address,
                 &mut self.auth_cache,
             )
-            .await
-            .unwrap_or_default()
+            .await?
         } else {
             BTreeSet::new()
         };
@@ -156,15 +149,14 @@ impl<CP: ChainProvider + Send> DataAvailabilityProvider for CalldataSource<CP> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sources::batch_auth::BATCH_INFO_AUTHENTICATED_TOPIC;
     use crate::{errors::PipelineErrorKind, test_utils::TestChainProvider};
     use alloc::{vec, vec::Vec};
     use alloy_consensus::transaction::SignerRecoverable;
     use alloy_consensus::{
-        Eip658Value, Receipt, Signed, TxEip2930, TxEip4844, TxEip4844Variant, TxEip7702,
-        TxLegacy,
+        Eip658Value, Receipt, Signed, TxEip2930, TxEip4844, TxEip4844Variant, TxEip7702, TxLegacy,
     };
     use alloy_primitives::{Address, Log, LogData, Signature, TxKind, address};
-    use crate::sources::batch_auth::BATCH_INFO_AUTHENTICATED_TOPIC;
 
     pub(crate) fn test_legacy_tx(to: Address) -> TxEnvelope {
         let sig = Signature::test_signature();
@@ -217,11 +209,7 @@ mod tests {
                 Default::default(),
             ),
         };
-        Receipt {
-            status: Eip658Value::Eip658(true),
-            logs: vec![log],
-            ..Default::default()
-        }
+        Receipt { status: Eip658Value::Eip658(true), logs: vec![log], ..Default::default() }
     }
 
     #[tokio::test]
@@ -283,10 +271,7 @@ mod tests {
         assert!(!source.open);
         // Use the correct signer address as batcher_address
         assert!(
-            source
-                .load_calldata(&BlockInfo::default(), tx.recover_signer().unwrap())
-                .await
-                .is_ok()
+            source.load_calldata(&BlockInfo::default(), tx.recover_signer().unwrap()).await.is_ok()
         );
         assert!(!source.calldata.is_empty()); // Calldata is NOT empty.
         assert!(source.open);
@@ -319,10 +304,7 @@ mod tests {
         source.chain_provider.insert_block_with_transactions(0, block_info, vec![tx.clone()]);
         assert!(!source.open);
         assert!(
-            source
-                .load_calldata(&BlockInfo::default(), tx.recover_signer().unwrap())
-                .await
-                .is_ok()
+            source.load_calldata(&BlockInfo::default(), tx.recover_signer().unwrap()).await.is_ok()
         );
         assert!(!source.calldata.is_empty()); // Calldata is NOT empty.
         assert!(source.open);
@@ -338,10 +320,7 @@ mod tests {
         source.chain_provider.insert_block_with_transactions(0, block_info, vec![tx.clone()]);
         assert!(!source.open);
         assert!(
-            source
-                .load_calldata(&BlockInfo::default(), tx.recover_signer().unwrap())
-                .await
-                .is_ok()
+            source.load_calldata(&BlockInfo::default(), tx.recover_signer().unwrap()).await.is_ok()
         );
         assert!(source.calldata.is_empty());
         assert!(source.open);
@@ -357,10 +336,7 @@ mod tests {
         source.chain_provider.insert_block_with_transactions(0, block_info, vec![tx.clone()]);
         assert!(!source.open);
         assert!(
-            source
-                .load_calldata(&BlockInfo::default(), tx.recover_signer().unwrap())
-                .await
-                .is_ok()
+            source.load_calldata(&BlockInfo::default(), tx.recover_signer().unwrap()).await.is_ok()
         );
         assert!(source.calldata.is_empty());
         assert!(source.open);
@@ -385,11 +361,8 @@ mod tests {
             authenticator_address: authenticator_addr,
             fallback_batcher_address: None,
         };
-        let mut source = CalldataSource::new(
-            TestChainProvider::default(),
-            batch_inbox_address,
-            Some(config),
-        );
+        let mut source =
+            CalldataSource::new(TestChainProvider::default(), batch_inbox_address, Some(config));
 
         let tx = test_legacy_tx(batch_inbox_address);
         let block_info = BlockInfo::default();
@@ -403,10 +376,7 @@ mod tests {
         source.chain_provider.insert_receipts(block_info.hash, vec![auth_receipt]);
 
         // Insert a header for the block so the lookback traversal can resolve it
-        let header = alloy_consensus::Header {
-            number: 0,
-            ..Default::default()
-        };
+        let header = alloy_consensus::Header { number: 0, ..Default::default() };
         source.chain_provider.insert_header(block_info.hash, header);
 
         assert!(source.load_calldata(&block_info, Address::ZERO).await.is_ok());
@@ -424,27 +394,18 @@ mod tests {
             authenticator_address: authenticator_addr,
             fallback_batcher_address: None,
         };
-        let mut source = CalldataSource::new(
-            TestChainProvider::default(),
-            batch_inbox_address,
-            Some(config),
-        );
+        let mut source =
+            CalldataSource::new(TestChainProvider::default(), batch_inbox_address, Some(config));
 
         let tx = test_legacy_tx(batch_inbox_address);
         let block_info = BlockInfo::default();
         source.chain_provider.insert_block_with_transactions(0, block_info, vec![tx.clone()]);
 
         // Insert empty receipts (no auth event)
-        let empty_receipt = Receipt {
-            status: Eip658Value::Eip658(true),
-            ..Default::default()
-        };
+        let empty_receipt = Receipt { status: Eip658Value::Eip658(true), ..Default::default() };
         source.chain_provider.insert_receipts(block_info.hash, vec![empty_receipt]);
 
-        let header = alloy_consensus::Header {
-            number: 0,
-            ..Default::default()
-        };
+        let header = alloy_consensus::Header { number: 0, ..Default::default() };
         source.chain_provider.insert_header(block_info.hash, header);
 
         assert!(source.load_calldata(&block_info, Address::ZERO).await.is_ok());
@@ -465,26 +426,17 @@ mod tests {
             authenticator_address: authenticator_addr,
             fallback_batcher_address: Some(fallback_batcher),
         };
-        let mut source = CalldataSource::new(
-            TestChainProvider::default(),
-            batch_inbox_address,
-            Some(config),
-        );
+        let mut source =
+            CalldataSource::new(TestChainProvider::default(), batch_inbox_address, Some(config));
 
         let block_info = BlockInfo::default();
         source.chain_provider.insert_block_with_transactions(0, block_info, vec![tx.clone()]);
 
         // Insert empty receipts (no auth event)
-        let empty_receipt = Receipt {
-            status: Eip658Value::Eip658(true),
-            ..Default::default()
-        };
+        let empty_receipt = Receipt { status: Eip658Value::Eip658(true), ..Default::default() };
         source.chain_provider.insert_receipts(block_info.hash, vec![empty_receipt]);
 
-        let header = alloy_consensus::Header {
-            number: 0,
-            ..Default::default()
-        };
+        let header = alloy_consensus::Header { number: 0, ..Default::default() };
         source.chain_provider.insert_header(block_info.hash, header);
 
         assert!(source.load_calldata(&block_info, Address::ZERO).await.is_ok());
