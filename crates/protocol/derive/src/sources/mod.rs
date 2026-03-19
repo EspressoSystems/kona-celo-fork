@@ -18,3 +18,6 @@ pub use blobs::BlobSource;
 
 mod calldata;
 pub use calldata::CalldataSource;
+
+mod batch_auth;
+pub use batch_auth::BatchAuthConfig;

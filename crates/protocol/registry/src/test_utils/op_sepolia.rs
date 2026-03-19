@@ -9,8 +9,8 @@ use alloy_op_hardforks::{
 };
 use alloy_primitives::{address, b256, uint};
 use kona_genesis::{
-    ChainGenesis, DEFAULT_INTEROP_MESSAGE_EXPIRY_WINDOW, HardForkConfig,
-    OP_SEPOLIA_BASE_FEE_CONFIG, RollupConfig, SystemConfig,
+    ChainGenesis, HardForkConfig, RollupConfig, SystemConfig,
+    DEFAULT_INTEROP_MESSAGE_EXPIRY_WINDOW, OP_SEPOLIA_BASE_FEE_CONFIG,
 };
 
 /// The [RollupConfig] for OP Sepolia.
@@ -70,4 +70,6 @@ pub const OP_SEPOLIA_CONFIG: RollupConfig = RollupConfig {
     da_challenge_address: None,
     blobs_enabled_l1_timestamp: None,
     interop_message_expiry_window: DEFAULT_INTEROP_MESSAGE_EXPIRY_WINDOW,
+    batch_authenticator_address: None,
+    fallback_batcher_address: None,
 };
