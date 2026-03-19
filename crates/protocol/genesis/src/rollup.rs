@@ -94,6 +94,17 @@ pub struct RollupConfig {
     /// `chain_op_config` is the chain-specific EIP1559 config for the rollup.
     #[cfg_attr(feature = "serde", serde(default = "BaseFeeConfig::optimism"))]
     pub chain_op_config: BaseFeeConfig,
+    /// Address of the BatchAuthenticator contract on L1. When set, enables
+    /// event-based batch authentication instead of sender verification.
+    /// The derivation pipeline scans L1 receipts for `BatchInfoAuthenticated` events
+    /// emitted by this contract in a lookback window to authenticate batches.
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
+    pub batch_authenticator_address: Option<Address>,
+    /// Address of the fallback (non-TEE) batcher. When batch auth is enabled,
+    /// this batcher is authorized via sender verification (no auth event needed),
+    /// allowing it to post batches without calling `authenticateBatchInfo` on L1.
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
+    pub fallback_batcher_address: Option<Address>,
 }
 
 #[cfg(feature = "arbitrary")]
@@ -128,6 +139,8 @@ impl<'a> arbitrary::Arbitrary<'a> for RollupConfig {
             interop_message_expiry_window: u.arbitrary()?,
             chain_op_config,
             alt_da_config: Option::<AltDAConfig>::arbitrary(u)?,
+            batch_authenticator_address: Option::<Address>::arbitrary(u)?,
+            fallback_batcher_address: Option::<Address>::arbitrary(u)?,
         })
     }
 }
@@ -155,6 +168,8 @@ impl Default for RollupConfig {
             interop_message_expiry_window: DEFAULT_INTEROP_MESSAGE_EXPIRY_WINDOW,
             alt_da_config: None,
             chain_op_config: OP_MAINNET_BASE_FEE_CONFIG,
+            batch_authenticator_address: None,
+            fallback_batcher_address: None,
         }
     }
 }
@@ -320,6 +335,13 @@ impl RollupConfig {
             !self.is_interop_active(timestamp.saturating_sub(self.block_time))
     }
 
+    /// Returns true if event-based batch authentication is configured.
+    /// When enabled, the derivation pipeline scans L1 receipts for `BatchInfoAuthenticated`
+    /// events instead of relying on sender verification.
+    pub fn is_batch_auth_enabled(&self) -> bool {
+        self.batch_authenticator_address.is_some_and(|addr| !addr.is_zero())
+    }
+
     /// Returns true if a DA Challenge proxy Address is provided in the rollup config and the
     /// address is not zero.
     pub fn is_alt_da_enabled(&self) -> bool {
@@ -476,7 +498,7 @@ mod tests {
     use alloy_eips::BlockNumHash;
     use alloy_primitives::address;
     #[cfg(feature = "serde")]
-    use alloy_primitives::{U256, b256};
+    use alloy_primitives::{b256, U256};
 
     #[test]
     #[cfg(feature = "arbitrary")]
@@ -775,7 +797,7 @@ mod tests {
     #[test]
     #[cfg(feature = "serde")]
     fn test_deserialize_reference_rollup_config() {
-        use crate::{OP_MAINNET_BASE_FEE_CONFIG, SystemConfig};
+        use crate::{SystemConfig, OP_MAINNET_BASE_FEE_CONFIG};
 
         let raw: &str = r#"
         {
@@ -870,6 +892,8 @@ mod tests {
             interop_message_expiry_window: DEFAULT_INTEROP_MESSAGE_EXPIRY_WINDOW,
             chain_op_config: OP_MAINNET_BASE_FEE_CONFIG,
             alt_da_config: None,
+            batch_authenticator_address: None,
+            fallback_batcher_address: None,
         };
 
         let deserialized: RollupConfig = serde_json::from_str(raw).unwrap();

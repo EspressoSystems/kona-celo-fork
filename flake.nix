@@ -38,8 +38,7 @@
           just
           libiconv
         ] ++ lib.optionals stdenv.isDarwin [
-          darwin.apple_sdk.frameworks.Security
-          darwin.apple_sdk.frameworks.SystemConfiguration
+          apple-sdk
         ];
 
       in
@@ -53,7 +52,7 @@
 
           # Clang/LLVM configuration for bindgen
           LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
-          BINDGEN_EXTRA_CLANG_ARGS = "-I${pkgs.glibc.dev}/include";
+         # BINDGEN_EXTRA_CLANG_ARGS = "-I${pkgs.glibc.dev}/include";
 
           # OpenSSL configuration for cross-platform compatibility
           OPENSSL_NO_VENDOR = "1";

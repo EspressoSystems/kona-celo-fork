@@ -4,6 +4,7 @@
 use crate::{
     BlobProvider, BlobSource, CalldataSource, ChainProvider, DataAvailabilityProvider,
     PipelineResult,
+    sources::batch_auth::BatchAuthConfig,
 };
 use alloc::{boxed::Box, fmt::Debug};
 use alloy_primitives::{Address, Bytes};
@@ -32,7 +33,7 @@ where
     B: BlobProvider + Send + Clone + Debug,
 {
     /// Instantiates a new [`EthereumDataSource`].
-    pub const fn new(
+    pub fn new(
         blob_source: BlobSource<C, B>,
         calldata_source: CalldataSource<C>,
         cfg: &RollupConfig,
@@ -42,10 +43,27 @@ where
 
     /// Instantiates a new [`EthereumDataSource`] from parts.
     pub fn new_from_parts(provider: C, blobs: B, cfg: &RollupConfig) -> Self {
+        let batch_auth_config = if cfg.is_batch_auth_enabled() {
+            Some(BatchAuthConfig {
+                authenticator_address: cfg.batch_authenticator_address.unwrap(),
+                fallback_batcher_address: cfg.fallback_batcher_address,
+            })
+        } else {
+            None
+        };
         Self {
             ecotone_timestamp: cfg.hardforks.ecotone_time,
-            blob_source: BlobSource::new(provider.clone(), blobs, cfg.batch_inbox_address),
-            calldata_source: CalldataSource::new(provider, cfg.batch_inbox_address),
+            blob_source: BlobSource::new(
+                provider.clone(),
+                blobs,
+                cfg.batch_inbox_address,
+                batch_auth_config.clone(),
+            ),
+            calldata_source: CalldataSource::new(
+                provider,
+                cfg.batch_inbox_address,
+                batch_auth_config,
+            ),
         }
     }
 }
@@ -96,7 +114,7 @@ mod tests {
         let chain_provider = TestChainProvider::default();
         let blob_fetcher = TestBlobProvider::default();
         let batcher_address = Address::default();
-        BlobSource::new(chain_provider, blob_fetcher, batcher_address)
+        BlobSource::new(chain_provider, blob_fetcher, batcher_address, None)
     }
 
     #[tokio::test]
@@ -104,10 +122,10 @@ mod tests {
         let chain = TestChainProvider::default();
         let blob = TestBlobProvider::default();
         let cfg = RollupConfig::default();
-        let mut calldata = CalldataSource::new(chain.clone(), Address::ZERO);
+        let mut calldata = CalldataSource::new(chain.clone(), Address::ZERO, None);
         calldata.calldata.insert(0, Default::default());
         calldata.open = true;
-        let mut blob = BlobSource::new(chain, blob, Address::ZERO);
+        let mut blob = BlobSource::new(chain, blob, Address::ZERO, None);
         blob.data = vec![Default::default()];
         blob.open = true;
         let mut data_source = EthereumDataSource::new(blob, calldata, &cfg);
@@ -125,7 +143,7 @@ mod tests {
         let mut blob = default_test_blob_source();
         blob.open = true;
         blob.data.push(BlobData { data: None, calldata: Some(Bytes::default()) });
-        let calldata = CalldataSource::new(chain.clone(), Address::ZERO);
+        let calldata = CalldataSource::new(chain.clone(), Address::ZERO, None);
         let cfg = RollupConfig {
             hardforks: HardForkConfig { ecotone_time: Some(0), ..Default::default() },
             ..Default::default()
