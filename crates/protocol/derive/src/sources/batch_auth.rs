@@ -9,7 +9,7 @@
 //! 1. **TEE batcher**: Must have a matching `BatchInfoAuthenticated` event where the commitment
 //!    matches the batch content hash. Sender identity is irrelevant.
 //! 2. **Fallback batcher**: Authorized via traditional sender address verification against
-//!    `fallback_batcher_address`. No auth event needed.
+//!    `batcher_address`. No auth event needed.
 //!
 //! When batch auth is not configured (i.e., `batch_authenticator_address` is `None`), the pipeline
 //! falls back to the standard OP Stack sender verification.
@@ -42,9 +42,6 @@ pub(crate) const BATCH_INFO_AUTHENTICATED_TOPIC: B256 =
 pub struct BatchAuthConfig {
     /// The L1 address of the `BatchAuthenticator` contract.
     pub authenticator_address: Address,
-    /// The address of the fallback (non-TEE) batcher. When set, this batcher is authorized
-    /// via sender verification without needing an auth event.
-    pub fallback_batcher_address: Option<Address>,
 }
 
 /// Computes `keccak256(calldata)`, matching the `BatchAuthenticator` contract's calldata batch
@@ -171,7 +168,7 @@ impl BatchAuthCache {
 /// When batch auth is enabled (`auth_config` is `Some`), there are two authorization paths:
 /// 1. **TEE batcher**: must have a matching `BatchInfoAuthenticated` event (checked via
 ///    `authenticated_hashes`)
-/// 2. **Fallback batcher**: authorized via sender verification against `fallback_batcher_address`
+/// 2. **Fallback batcher**: authorized via sender verification against `batcher_address`
 ///
 /// When batch auth is not configured (`auth_config` is `None`), standard OP Stack sender
 /// verification is used against `batcher_address`.
@@ -182,33 +179,17 @@ pub(crate) fn is_batch_authorized(
     authenticated_hashes: &BTreeSet<B256>,
     batcher_address: Address,
 ) -> bool {
-    match auth_config {
-        Some(config) => {
-            // Event-based authentication: TEE batcher must have an auth event
-            // in the lookback window. If the gap between authentication transaction
-            // and the batch data is more than the lookback window, it's batcher's
-            // responsibility to detect this and re-submit the authentication transaction
-            // and batch data.
-            if authenticated_hashes.contains(&batch_hash) {
-                return true;
-            }
-            // Fallback batcher: accept via sender verification
-            if let Some(fallback_addr) = config.fallback_batcher_address {
-                if !fallback_addr.is_zero() {
-                    if let Ok(sender) = tx.recover_signer() {
-                        if sender == fallback_addr {
-                            return true;
-                        }
-                    }
-                }
-            }
-            false
-        }
-        None => {
-            // Legacy mode: verify sender matches batcher address
-            tx.recover_signer().map(|sender| sender == batcher_address).unwrap_or(false)
-        }
+    // Event-based authentication: TEE batcher must have an auth event
+    // in the lookback window. If the gap between authentication transaction
+    // and the batch data is more than the lookback window, it's batcher's
+    // responsibility to detect this and re-submit the authentication transaction
+    // and batch data.
+    if auth_config.is_some() && authenticated_hashes.contains(&batch_hash) {
+        return true;
     }
+    // Sender verification against batcher_address: used as fallback when batch auth is
+    // enabled, and as the sole check in legacy mode.
+    tx.recover_signer().map(|sender| sender == batcher_address).unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -317,8 +298,7 @@ mod tests {
     #[test]
     fn test_is_batch_authorized_tee_path() {
         let auth_addr = address!("1234567890123456789012345678901234567890");
-        let config =
-            BatchAuthConfig { authenticator_address: auth_addr, fallback_batcher_address: None };
+        let config = BatchAuthConfig { authenticator_address: auth_addr };
         let batch_hash = b256!("abcdef0000000000000000000000000000000000000000000000000000000000");
         let mut authenticated = BTreeSet::new();
         authenticated.insert(batch_hash);
@@ -330,8 +310,7 @@ mod tests {
     #[test]
     fn test_is_batch_authorized_not_authenticated() {
         let auth_addr = address!("1234567890123456789012345678901234567890");
-        let config =
-            BatchAuthConfig { authenticator_address: auth_addr, fallback_batcher_address: None };
+        let config = BatchAuthConfig { authenticator_address: auth_addr };
         let batch_hash = b256!("abcdef0000000000000000000000000000000000000000000000000000000000");
         let authenticated = BTreeSet::new(); // empty
 
