@@ -46,7 +46,6 @@ where
         let batch_auth_config = if cfg.is_batch_auth_enabled() {
             Some(BatchAuthConfig {
                 authenticator_address: cfg.batch_authenticator_address.unwrap(),
-                fallback_batcher_address: cfg.fallback_batcher_address,
             })
         } else {
             None

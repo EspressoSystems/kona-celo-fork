@@ -100,11 +100,6 @@ pub struct RollupConfig {
     /// emitted by this contract in a lookback window to authenticate batches.
     #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
     pub batch_authenticator_address: Option<Address>,
-    /// Address of the fallback (non-TEE) batcher. When batch auth is enabled,
-    /// this batcher is authorized via sender verification (no auth event needed),
-    /// allowing it to post batches without calling `authenticateBatchInfo` on L1.
-    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
-    pub fallback_batcher_address: Option<Address>,
 }
 
 #[cfg(feature = "arbitrary")]
@@ -140,7 +135,6 @@ impl<'a> arbitrary::Arbitrary<'a> for RollupConfig {
             chain_op_config,
             alt_da_config: Option::<AltDAConfig>::arbitrary(u)?,
             batch_authenticator_address: Option::<Address>::arbitrary(u)?,
-            fallback_batcher_address: Option::<Address>::arbitrary(u)?,
         })
     }
 }
@@ -169,7 +163,6 @@ impl Default for RollupConfig {
             alt_da_config: None,
             chain_op_config: OP_MAINNET_BASE_FEE_CONFIG,
             batch_authenticator_address: None,
-            fallback_batcher_address: None,
         }
     }
 }
@@ -904,7 +897,6 @@ mod tests {
             chain_op_config: OP_MAINNET_BASE_FEE_CONFIG,
             alt_da_config: None,
             batch_authenticator_address: None,
-            fallback_batcher_address: None,
         };
 
         let deserialized: RollupConfig = serde_json::from_str(raw).unwrap();
