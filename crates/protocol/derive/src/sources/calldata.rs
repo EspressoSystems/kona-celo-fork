@@ -351,16 +351,13 @@ mod tests {
         ));
     }
 
-    // Test event-based batch authentication: TEE batcher path.
+    // Test event-based batch authentication: Espresso batcher path.
     #[tokio::test]
     async fn test_load_calldata_batch_auth_tee_path() {
         let batch_inbox_address = address!("0123456789012345678901234567890123456789");
         let authenticator_addr = address!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 
-        let config = BatchAuthConfig {
-            authenticator_address: authenticator_addr,
-            fallback_batcher_address: None,
-        };
+        let config = BatchAuthConfig { authenticator_address: authenticator_addr };
         let mut source =
             CalldataSource::new(TestChainProvider::default(), batch_inbox_address, Some(config));
 
@@ -384,16 +381,13 @@ mod tests {
         assert!(source.open);
     }
 
-    // Test event-based batch authentication: batch not authenticated, no fallback.
+    // Test event-based batch authentication: unknown sender rejected without auth event.
     #[tokio::test]
     async fn test_load_calldata_batch_auth_not_authenticated() {
         let batch_inbox_address = address!("0123456789012345678901234567890123456789");
         let authenticator_addr = address!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 
-        let config = BatchAuthConfig {
-            authenticator_address: authenticator_addr,
-            fallback_batcher_address: None,
-        };
+        let config = BatchAuthConfig { authenticator_address: authenticator_addr };
         let mut source =
             CalldataSource::new(TestChainProvider::default(), batch_inbox_address, Some(config));
 
@@ -413,19 +407,17 @@ mod tests {
         assert!(source.open);
     }
 
-    // Test event-based batch authentication: fallback batcher path.
+    // Test event-based batch authentication: fallback batcher (SystemConfig batcherAddr) accepted
+    // without auth event.
     #[tokio::test]
     async fn test_load_calldata_batch_auth_fallback_batcher() {
         let batch_inbox_address = address!("0123456789012345678901234567890123456789");
         let authenticator_addr = address!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 
         let tx = test_legacy_tx(batch_inbox_address);
-        let fallback_batcher = tx.recover_signer().unwrap();
+        let batcher_address = tx.recover_signer().unwrap();
 
-        let config = BatchAuthConfig {
-            authenticator_address: authenticator_addr,
-            fallback_batcher_address: Some(fallback_batcher),
-        };
+        let config = BatchAuthConfig { authenticator_address: authenticator_addr };
         let mut source =
             CalldataSource::new(TestChainProvider::default(), batch_inbox_address, Some(config));
 
@@ -439,8 +431,10 @@ mod tests {
         let header = alloy_consensus::Header { number: 0, ..Default::default() };
         source.chain_provider.insert_header(block_info.hash, header);
 
-        assert!(source.load_calldata(&block_info, Address::ZERO).await.is_ok());
-        assert!(!source.calldata.is_empty()); // Authorized via fallback sender
+        // Pass the tx signer as the batcher_address (SystemConfig batcher), which should
+        // authorize the batch via fallback sender verification.
+        assert!(source.load_calldata(&block_info, batcher_address).await.is_ok());
+        assert!(!source.calldata.is_empty()); // Authorized via SystemConfig batcher fallback
         assert!(source.open);
     }
 }
