@@ -351,7 +351,7 @@ mod tests {
         ));
     }
 
-    // Test event-based batch authentication: TEE batcher path.
+    // Test event-based batch authentication: Espresso batcher path.
     #[tokio::test]
     async fn test_load_calldata_batch_auth_tee_path() {
         let batch_inbox_address = address!("0123456789012345678901234567890123456789");

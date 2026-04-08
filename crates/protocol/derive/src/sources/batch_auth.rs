@@ -6,7 +6,7 @@
 //! emitted by the `BatchAuthenticator` contract within a lookback window.
 //!
 //! Two authorization paths are supported:
-//! 1. **TEE batcher**: Must have a matching `BatchInfoAuthenticated` event where the commitment
+//! 1. **Espresso batcher**: Must have a matching `BatchInfoAuthenticated` event where the commitment
 //!    matches the batch content hash. Sender identity is irrelevant.
 //! 2. **Fallback batcher**: Authorized via traditional sender address verification against
 //!    `batcher_address`. No auth event needed.
@@ -166,7 +166,7 @@ impl BatchAuthCache {
 /// or legacy sender verification.
 ///
 /// When batch auth is enabled (`auth_config` is `Some`), there are two authorization paths:
-/// 1. **TEE batcher**: must have a matching `BatchInfoAuthenticated` event (checked via
+/// 1. **Espresso batcher**: must have a matching `BatchInfoAuthenticated` event (checked via
 ///    `authenticated_hashes`)
 /// 2. **Fallback batcher**: authorized via sender verification against `batcher_address`
 ///
@@ -179,7 +179,7 @@ pub(crate) fn is_batch_authorized(
     authenticated_hashes: &BTreeSet<B256>,
     batcher_address: Address,
 ) -> bool {
-    // Event-based authentication: TEE batcher must have an auth event
+    // Event-based authentication: Espresso batcher must have an auth event
     // in the lookback window. If the gap between authentication transaction
     // and the batch data is more than the lookback window, it's batcher's
     // responsibility to detect this and re-submit the authentication transaction
