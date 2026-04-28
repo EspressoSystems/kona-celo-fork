@@ -227,8 +227,8 @@ where
                 processed_blocks += 1;
 
                 // Log progress periodically or on last block
-                if processed_blocks % self.observability_interval == 0 ||
-                    processed_blocks == total_blocks
+                if processed_blocks % self.observability_interval == 0
+                    || processed_blocks == total_blocks
                 {
                     let percentage = if total_blocks > 0 {
                         (processed_blocks as f64 / total_blocks as f64 * 100.0).min(100.0)

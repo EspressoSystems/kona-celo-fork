@@ -80,9 +80,9 @@ impl BufferedL2Provider {
 
         // Update our tracked head based on the event
         match &event {
-            ChainStateEvent::ChainCommitted { new_head, .. } |
-            ChainStateEvent::ChainReorged { new_head, .. } |
-            ChainStateEvent::ChainReverted { new_head, .. } => {
+            ChainStateEvent::ChainCommitted { new_head, .. }
+            | ChainStateEvent::ChainReorged { new_head, .. }
+            | ChainStateEvent::ChainReverted { new_head, .. } => {
                 let mut current_head = self.current_head.write().await;
                 *current_head = Some(*new_head);
             }

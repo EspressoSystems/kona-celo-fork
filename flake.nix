@@ -58,6 +58,20 @@
           OPENSSL_NO_VENDOR = "1";
           PKG_CONFIG_PATH = "${pkgs.openssl.dev}/lib/pkgconfig";
 
+          # Force rustc to link binaries (including cargo build scripts) with
+          # nix's wrapped cc/gcc. Without this, rustc falls back to the host
+          # toolchain on systems where /usr/bin/cc is present, producing
+          # binaries whose interpreter is /lib64/ld-linux-x86-64.so.2 and
+          # whose libc is the host's. That breaks bindgen later because it
+          # dlopens nix-built libclang.so, which needs nix's glibc 2.40 — but
+          # the host's loader/libc (Ubuntu 22.04 = glibc 2.35) is what gets
+          # used, hitting `GLIBC_2.38 not found`. Pointing the linker at
+          # nix's cc means build-script-build is linked against nix's glibc,
+          # so libclang's RUNPATH resolves consistently at dlopen time.
+          CC = "${pkgs.stdenv.cc}/bin/cc";
+          CXX = "${pkgs.stdenv.cc}/bin/c++";
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER = "${pkgs.stdenv.cc}/bin/cc";
+
           shellHook = ''
             echo "🦀 Kona development environment loaded!"
             echo "Rust version: $(rustc --version)"

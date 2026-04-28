@@ -44,10 +44,10 @@ impl From<AdminError> for ErrorObjectOwned {
         match err {
             // todo: handle these errors more gracefully
             AdminError::InvalidJwtSecret(_) => ErrorObjectOwned::from(ErrorCode::InvalidParams),
-            AdminError::SendFailed |
-            AdminError::SenderDropped |
-            AdminError::Timeout |
-            AdminError::ServiceError(_) => ErrorObjectOwned::from(ErrorCode::InternalError),
+            AdminError::SendFailed
+            | AdminError::SenderDropped
+            | AdminError::Timeout
+            | AdminError::ServiceError(_) => ErrorObjectOwned::from(ErrorCode::InternalError),
         }
     }
 }

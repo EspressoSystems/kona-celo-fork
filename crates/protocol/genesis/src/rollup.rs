@@ -21,6 +21,14 @@ pub const GRANITE_CHANNEL_TIMEOUT: u64 = 50;
 /// The default interop message expiry window. (1 hour, in seconds)
 pub const DEFAULT_INTEROP_MESSAGE_EXPIRY_WINDOW: u64 = 60 * 60;
 
+/// The default number of L1 blocks to scan for `BatchInfoAuthenticated` events when
+/// authenticating a batch. Roughly 20 minutes on Ethereum mainnet (12s blocks).
+///
+/// This parameter affects derivation consensus, so it must remain a single value across all
+/// participants for the lifetime of the chain. It is configured per-chain via `rollup.json`
+/// rather than as a per-operator CLI flag.
+pub const DEFAULT_BATCH_AUTH_LOOKBACK_WINDOW: u64 = 100;
+
 #[cfg(feature = "serde")]
 const fn default_granite_channel_timeout() -> u64 {
     GRANITE_CHANNEL_TIMEOUT
@@ -100,6 +108,14 @@ pub struct RollupConfig {
     /// emitted by this contract in a lookback window to authenticate batches.
     #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
     pub batch_authenticator_address: Option<Address>,
+    /// Number of L1 blocks before the batch submission to scan for a
+    /// `BatchInfoAuthenticated` event. When `None`, defaults to
+    /// [`DEFAULT_BATCH_AUTH_LOOKBACK_WINDOW`] via [`RollupConfig::batch_auth_lookback_window`].
+    ///
+    /// This must remain a single value across all participants for the chain's lifetime, so it
+    /// is configured per-chain in `rollup.json` rather than via a CLI flag.
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
+    pub batch_auth_lookback_window: Option<u64>,
 }
 
 #[cfg(feature = "arbitrary")]
@@ -135,6 +151,7 @@ impl<'a> arbitrary::Arbitrary<'a> for RollupConfig {
             chain_op_config,
             alt_da_config: Option::<AltDAConfig>::arbitrary(u)?,
             batch_authenticator_address: Option::<Address>::arbitrary(u)?,
+            batch_auth_lookback_window: Option::<u64>::arbitrary(u)?,
         })
     }
 }
@@ -163,6 +180,7 @@ impl Default for RollupConfig {
             alt_da_config: None,
             chain_op_config: OP_MAINNET_BASE_FEE_CONFIG,
             batch_authenticator_address: None,
+            batch_auth_lookback_window: None,
         }
     }
 }
@@ -200,86 +218,86 @@ impl RollupConfig {
 impl RollupConfig {
     /// Returns true if Regolith is active at the given timestamp.
     pub fn is_regolith_active(&self, timestamp: u64) -> bool {
-        self.hardforks.regolith_time.is_some_and(|t| timestamp >= t) ||
-            self.is_canyon_active(timestamp)
+        self.hardforks.regolith_time.is_some_and(|t| timestamp >= t)
+            || self.is_canyon_active(timestamp)
     }
 
     /// Returns true if the timestamp marks the first Regolith block.
     pub fn is_first_regolith_block(&self, timestamp: u64) -> bool {
-        self.is_regolith_active(timestamp) &&
-            !self.is_regolith_active(timestamp.saturating_sub(self.block_time))
+        self.is_regolith_active(timestamp)
+            && !self.is_regolith_active(timestamp.saturating_sub(self.block_time))
     }
 
     /// Returns true if Canyon is active at the given timestamp.
     pub fn is_canyon_active(&self, timestamp: u64) -> bool {
-        self.hardforks.canyon_time.is_some_and(|t| timestamp >= t) ||
-            self.is_delta_active(timestamp)
+        self.hardforks.canyon_time.is_some_and(|t| timestamp >= t)
+            || self.is_delta_active(timestamp)
     }
 
     /// Returns true if the timestamp marks the first Canyon block.
     pub fn is_first_canyon_block(&self, timestamp: u64) -> bool {
-        self.is_canyon_active(timestamp) &&
-            !self.is_canyon_active(timestamp.saturating_sub(self.block_time))
+        self.is_canyon_active(timestamp)
+            && !self.is_canyon_active(timestamp.saturating_sub(self.block_time))
     }
 
     /// Returns true if Delta is active at the given timestamp.
     pub fn is_delta_active(&self, timestamp: u64) -> bool {
-        self.hardforks.delta_time.is_some_and(|t| timestamp >= t) ||
-            self.is_ecotone_active(timestamp)
+        self.hardforks.delta_time.is_some_and(|t| timestamp >= t)
+            || self.is_ecotone_active(timestamp)
     }
 
     /// Returns true if the timestamp marks the first Delta block.
     pub fn is_first_delta_block(&self, timestamp: u64) -> bool {
-        self.is_delta_active(timestamp) &&
-            !self.is_delta_active(timestamp.saturating_sub(self.block_time))
+        self.is_delta_active(timestamp)
+            && !self.is_delta_active(timestamp.saturating_sub(self.block_time))
     }
 
     /// Returns true if Ecotone is active at the given timestamp.
     pub fn is_ecotone_active(&self, timestamp: u64) -> bool {
-        self.hardforks.ecotone_time.is_some_and(|t| timestamp >= t) ||
-            self.is_fjord_active(timestamp)
+        self.hardforks.ecotone_time.is_some_and(|t| timestamp >= t)
+            || self.is_fjord_active(timestamp)
     }
 
     /// Returns true if the timestamp marks the first Ecotone block.
     pub fn is_first_ecotone_block(&self, timestamp: u64) -> bool {
-        self.is_ecotone_active(timestamp) &&
-            !self.is_ecotone_active(timestamp.saturating_sub(self.block_time))
+        self.is_ecotone_active(timestamp)
+            && !self.is_ecotone_active(timestamp.saturating_sub(self.block_time))
     }
 
     /// Returns true if Fjord is active at the given timestamp.
     pub fn is_fjord_active(&self, timestamp: u64) -> bool {
-        self.hardforks.fjord_time.is_some_and(|t| timestamp >= t) ||
-            self.is_granite_active(timestamp)
+        self.hardforks.fjord_time.is_some_and(|t| timestamp >= t)
+            || self.is_granite_active(timestamp)
     }
 
     /// Returns true if the timestamp marks the first Fjord block.
     pub fn is_first_fjord_block(&self, timestamp: u64) -> bool {
-        self.is_fjord_active(timestamp) &&
-            !self.is_fjord_active(timestamp.saturating_sub(self.block_time))
+        self.is_fjord_active(timestamp)
+            && !self.is_fjord_active(timestamp.saturating_sub(self.block_time))
     }
 
     /// Returns true if Granite is active at the given timestamp.
     pub fn is_granite_active(&self, timestamp: u64) -> bool {
-        self.hardforks.granite_time.is_some_and(|t| timestamp >= t) ||
-            self.is_holocene_active(timestamp)
+        self.hardforks.granite_time.is_some_and(|t| timestamp >= t)
+            || self.is_holocene_active(timestamp)
     }
 
     /// Returns true if the timestamp marks the first Granite block.
     pub fn is_first_granite_block(&self, timestamp: u64) -> bool {
-        self.is_granite_active(timestamp) &&
-            !self.is_granite_active(timestamp.saturating_sub(self.block_time))
+        self.is_granite_active(timestamp)
+            && !self.is_granite_active(timestamp.saturating_sub(self.block_time))
     }
 
     /// Returns true if Holocene is active at the given timestamp.
     pub fn is_holocene_active(&self, timestamp: u64) -> bool {
-        self.hardforks.holocene_time.is_some_and(|t| timestamp >= t) ||
-            self.is_isthmus_active(timestamp)
+        self.hardforks.holocene_time.is_some_and(|t| timestamp >= t)
+            || self.is_isthmus_active(timestamp)
     }
 
     /// Returns true if the timestamp marks the first Holocene block.
     pub fn is_first_holocene_block(&self, timestamp: u64) -> bool {
-        self.is_holocene_active(timestamp) &&
-            !self.is_holocene_active(timestamp.saturating_sub(self.block_time))
+        self.is_holocene_active(timestamp)
+            && !self.is_holocene_active(timestamp.saturating_sub(self.block_time))
     }
 
     /// Returns true if the pectra blob schedule is active at the given timestamp.
@@ -289,32 +307,32 @@ impl RollupConfig {
 
     /// Returns true if the timestamp marks the first pectra blob schedule block.
     pub fn is_first_pectra_blob_schedule_block(&self, timestamp: u64) -> bool {
-        self.is_pectra_blob_schedule_active(timestamp) &&
-            !self.is_pectra_blob_schedule_active(timestamp.saturating_sub(self.block_time))
+        self.is_pectra_blob_schedule_active(timestamp)
+            && !self.is_pectra_blob_schedule_active(timestamp.saturating_sub(self.block_time))
     }
 
     /// Returns true if Isthmus is active at the given timestamp.
     pub fn is_isthmus_active(&self, timestamp: u64) -> bool {
-        self.hardforks.isthmus_time.is_some_and(|t| timestamp >= t) ||
-            self.is_jovian_active(timestamp)
+        self.hardforks.isthmus_time.is_some_and(|t| timestamp >= t)
+            || self.is_jovian_active(timestamp)
     }
 
     /// Returns true if the timestamp marks the first Isthmus block.
     pub fn is_first_isthmus_block(&self, timestamp: u64) -> bool {
-        self.is_isthmus_active(timestamp) &&
-            !self.is_isthmus_active(timestamp.saturating_sub(self.block_time))
+        self.is_isthmus_active(timestamp)
+            && !self.is_isthmus_active(timestamp.saturating_sub(self.block_time))
     }
 
     /// Returns true if Jovian is active at the given timestamp.
     pub fn is_jovian_active(&self, timestamp: u64) -> bool {
-        self.hardforks.jovian_time.is_some_and(|t| timestamp >= t) ||
-            self.is_interop_active(timestamp)
+        self.hardforks.jovian_time.is_some_and(|t| timestamp >= t)
+            || self.is_interop_active(timestamp)
     }
 
     /// Returns true if the timestamp marks the first Jovian block.
     pub fn is_first_jovian_block(&self, timestamp: u64) -> bool {
-        self.is_jovian_active(timestamp) &&
-            !self.is_jovian_active(timestamp.saturating_sub(self.block_time))
+        self.is_jovian_active(timestamp)
+            && !self.is_jovian_active(timestamp.saturating_sub(self.block_time))
     }
 
     /// Returns true if Interop is active at the given timestamp.
@@ -324,8 +342,8 @@ impl RollupConfig {
 
     /// Returns true if the timestamp marks the first Interop block.
     pub fn is_first_interop_block(&self, timestamp: u64) -> bool {
-        self.is_interop_active(timestamp) &&
-            !self.is_interop_active(timestamp.saturating_sub(self.block_time))
+        self.is_interop_active(timestamp)
+            && !self.is_interop_active(timestamp.saturating_sub(self.block_time))
     }
 
     /// Returns true if event-based batch authentication is configured.
@@ -333,6 +351,12 @@ impl RollupConfig {
     /// events instead of relying on sender verification.
     pub fn is_batch_auth_enabled(&self) -> bool {
         self.batch_authenticator_address.is_some_and(|addr| !addr.is_zero())
+    }
+
+    /// Returns the configured batch auth lookback window, falling back to
+    /// [`DEFAULT_BATCH_AUTH_LOOKBACK_WINDOW`] when unset.
+    pub fn batch_auth_lookback_window(&self) -> u64 {
+        self.batch_auth_lookback_window.unwrap_or(DEFAULT_BATCH_AUTH_LOOKBACK_WINDOW)
     }
 
     /// Returns true if a DA Challenge proxy Address is provided in the rollup config and the
@@ -491,7 +515,7 @@ mod tests {
     use alloy_eips::BlockNumHash;
     use alloy_primitives::address;
     #[cfg(feature = "serde")]
-    use alloy_primitives::{b256, U256};
+    use alloy_primitives::{U256, b256};
 
     #[test]
     #[cfg(feature = "arbitrary")]
@@ -790,7 +814,7 @@ mod tests {
     #[test]
     #[cfg(feature = "serde")]
     fn test_deserialize_reference_rollup_config() {
-        use crate::{SystemConfig, OP_MAINNET_BASE_FEE_CONFIG};
+        use crate::{OP_MAINNET_BASE_FEE_CONFIG, SystemConfig};
 
         let raw: &str = r#"
         {
@@ -886,6 +910,7 @@ mod tests {
             chain_op_config: OP_MAINNET_BASE_FEE_CONFIG,
             alt_da_config: None,
             batch_authenticator_address: None,
+            batch_auth_lookback_window: None,
         };
 
         let deserialized: RollupConfig = serde_json::from_str(raw).unwrap();

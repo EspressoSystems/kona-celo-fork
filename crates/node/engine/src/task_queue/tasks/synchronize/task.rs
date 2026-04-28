@@ -111,8 +111,8 @@ impl EngineTaskExt for SynchronizeTask {
         }
 
         // Check if the head is behind the finalized head.
-        if new_sync_state.unsafe_head().block_info.number <
-            new_sync_state.finalized_head().block_info.number
+        if new_sync_state.unsafe_head().block_info.number
+            < new_sync_state.finalized_head().block_info.number
         {
             return Err(SynchronizeTaskError::FinalizedAheadOfUnsafe(
                 new_sync_state.unsafe_head().block_info.number,

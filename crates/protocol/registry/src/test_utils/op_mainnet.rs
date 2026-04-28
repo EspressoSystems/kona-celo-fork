@@ -8,8 +8,8 @@ use alloy_op_hardforks::{
 };
 use alloy_primitives::{address, b256, uint};
 use kona_genesis::{
-    ChainGenesis, HardForkConfig, RollupConfig, SystemConfig,
-    DEFAULT_INTEROP_MESSAGE_EXPIRY_WINDOW, OP_MAINNET_BASE_FEE_CONFIG,
+    ChainGenesis, DEFAULT_INTEROP_MESSAGE_EXPIRY_WINDOW, HardForkConfig,
+    OP_MAINNET_BASE_FEE_CONFIG, RollupConfig, SystemConfig,
 };
 
 /// The [RollupConfig] for OP Mainnet.
@@ -69,4 +69,5 @@ pub const OP_MAINNET_CONFIG: RollupConfig = RollupConfig {
     blobs_enabled_l1_timestamp: None,
     interop_message_expiry_window: DEFAULT_INTEROP_MESSAGE_EXPIRY_WINDOW,
     batch_authenticator_address: None,
+    batch_auth_lookback_window: None,
 };

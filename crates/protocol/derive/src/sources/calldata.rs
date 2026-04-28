@@ -31,6 +31,9 @@ where
     /// Batch authentication configuration. When `Some`, event-based batch authentication
     /// is used. When `None`, legacy sender-based authentication is used.
     pub batch_auth_config: Option<BatchAuthConfig>,
+    /// Number of L1 blocks to scan for `BatchInfoAuthenticated` events when batch auth is
+    /// enabled. Configured per-chain via [`kona_genesis::RollupConfig::batch_auth_lookback_window`].
+    pub batch_auth_lookback_window: u64,
     /// LRU caches for batch auth lookback window traversal (receipts + headers).
     pub(crate) auth_cache: BatchAuthCache,
 }
@@ -41,6 +44,7 @@ impl<CP: ChainProvider + Send> CalldataSource<CP> {
         chain_provider: CP,
         batch_inbox_address: Address,
         batch_auth_config: Option<BatchAuthConfig>,
+        batch_auth_lookback_window: u64,
     ) -> Self {
         Self {
             chain_provider,
@@ -48,7 +52,8 @@ impl<CP: ChainProvider + Send> CalldataSource<CP> {
             calldata: VecDeque::new(),
             open: false,
             batch_auth_config,
-            auth_cache: BatchAuthCache::new(),
+            batch_auth_lookback_window,
+            auth_cache: BatchAuthCache::new(batch_auth_lookback_window),
         }
     }
 
@@ -73,6 +78,7 @@ impl<CP: ChainProvider + Send> CalldataSource<CP> {
                 &mut self.chain_provider,
                 block_ref,
                 config.authenticator_address,
+                self.batch_auth_lookback_window,
                 &mut self.auth_cache,
             )
             .await?
@@ -195,7 +201,12 @@ mod tests {
     }
 
     pub(crate) fn default_test_calldata_source() -> CalldataSource<TestChainProvider> {
-        CalldataSource::new(TestChainProvider::default(), Default::default(), None)
+        CalldataSource::new(
+            TestChainProvider::default(),
+            Default::default(),
+            None,
+            kona_genesis::DEFAULT_BATCH_AUTH_LOOKBACK_WINDOW,
+        )
     }
 
     /// Creates a receipt with a `BatchInfoAuthenticated` event for the given commitment.
@@ -358,8 +369,12 @@ mod tests {
         let authenticator_addr = address!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 
         let config = BatchAuthConfig { authenticator_address: authenticator_addr };
-        let mut source =
-            CalldataSource::new(TestChainProvider::default(), batch_inbox_address, Some(config));
+        let mut source = CalldataSource::new(
+            TestChainProvider::default(),
+            batch_inbox_address,
+            Some(config),
+            kona_genesis::DEFAULT_BATCH_AUTH_LOOKBACK_WINDOW,
+        );
 
         let tx = test_legacy_tx(batch_inbox_address);
         let block_info = BlockInfo::default();
@@ -388,8 +403,12 @@ mod tests {
         let authenticator_addr = address!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 
         let config = BatchAuthConfig { authenticator_address: authenticator_addr };
-        let mut source =
-            CalldataSource::new(TestChainProvider::default(), batch_inbox_address, Some(config));
+        let mut source = CalldataSource::new(
+            TestChainProvider::default(),
+            batch_inbox_address,
+            Some(config),
+            kona_genesis::DEFAULT_BATCH_AUTH_LOOKBACK_WINDOW,
+        );
 
         let tx = test_legacy_tx(batch_inbox_address);
         let block_info = BlockInfo::default();
@@ -418,8 +437,12 @@ mod tests {
         let batcher_address = tx.recover_signer().unwrap();
 
         let config = BatchAuthConfig { authenticator_address: authenticator_addr };
-        let mut source =
-            CalldataSource::new(TestChainProvider::default(), batch_inbox_address, Some(config));
+        let mut source = CalldataSource::new(
+            TestChainProvider::default(),
+            batch_inbox_address,
+            Some(config),
+            kona_genesis::DEFAULT_BATCH_AUTH_LOOKBACK_WINDOW,
+        );
 
         let block_info = BlockInfo::default();
         source.chain_provider.insert_block_with_transactions(0, block_info, vec![tx.clone()]);
