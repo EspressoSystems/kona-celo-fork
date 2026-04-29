@@ -21,6 +21,14 @@ pub const GRANITE_CHANNEL_TIMEOUT: u64 = 50;
 /// The default interop message expiry window. (1 hour, in seconds)
 pub const DEFAULT_INTEROP_MESSAGE_EXPIRY_WINDOW: u64 = 60 * 60;
 
+/// The default number of L1 blocks to scan for `BatchInfoAuthenticated` events when
+/// authenticating a batch. Roughly 20 minutes on Ethereum mainnet (12s blocks).
+///
+/// This parameter affects derivation consensus, so it must remain a single value across all
+/// participants for the lifetime of the chain. It is configured per-chain via `rollup.json`
+/// rather than as a per-operator CLI flag.
+pub const DEFAULT_BATCH_AUTH_LOOKBACK_WINDOW: u64 = 100;
+
 #[cfg(feature = "serde")]
 const fn default_granite_channel_timeout() -> u64 {
     GRANITE_CHANNEL_TIMEOUT
@@ -100,6 +108,14 @@ pub struct RollupConfig {
     /// emitted by this contract in a lookback window to authenticate batches.
     #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
     pub batch_authenticator_address: Option<Address>,
+    /// Number of L1 blocks before the batch submission to scan for a
+    /// `BatchInfoAuthenticated` event. When `None`, defaults to
+    /// [`DEFAULT_BATCH_AUTH_LOOKBACK_WINDOW`] via [`RollupConfig::batch_auth_lookback_window`].
+    ///
+    /// This must remain a single value across all participants for the chain's lifetime, so it
+    /// is configured per-chain in `rollup.json` rather than via a CLI flag.
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
+    pub batch_auth_lookback_window: Option<u64>,
 }
 
 #[cfg(feature = "arbitrary")]
@@ -135,6 +151,7 @@ impl<'a> arbitrary::Arbitrary<'a> for RollupConfig {
             chain_op_config,
             alt_da_config: Option::<AltDAConfig>::arbitrary(u)?,
             batch_authenticator_address: Option::<Address>::arbitrary(u)?,
+            batch_auth_lookback_window: Option::<u64>::arbitrary(u)?,
         })
     }
 }
@@ -163,6 +180,7 @@ impl Default for RollupConfig {
             alt_da_config: None,
             chain_op_config: OP_MAINNET_BASE_FEE_CONFIG,
             batch_authenticator_address: None,
+            batch_auth_lookback_window: None,
         }
     }
 }
@@ -333,6 +351,12 @@ impl RollupConfig {
     /// events instead of relying on sender verification.
     pub fn is_batch_auth_enabled(&self) -> bool {
         self.batch_authenticator_address.is_some_and(|addr| !addr.is_zero())
+    }
+
+    /// Returns the configured batch auth lookback window, falling back to
+    /// [`DEFAULT_BATCH_AUTH_LOOKBACK_WINDOW`] when unset.
+    pub fn batch_auth_lookback_window(&self) -> u64 {
+        self.batch_auth_lookback_window.unwrap_or(DEFAULT_BATCH_AUTH_LOOKBACK_WINDOW)
     }
 
     /// Returns true if a DA Challenge proxy Address is provided in the rollup config and the
@@ -886,6 +910,7 @@ mod tests {
             chain_op_config: OP_MAINNET_BASE_FEE_CONFIG,
             alt_da_config: None,
             batch_authenticator_address: None,
+            batch_auth_lookback_window: None,
         };
 
         let deserialized: RollupConfig = serde_json::from_str(raw).unwrap();

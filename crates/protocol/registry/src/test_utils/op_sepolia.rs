@@ -69,4 +69,5 @@ pub const OP_SEPOLIA_CONFIG: RollupConfig = RollupConfig {
     blobs_enabled_l1_timestamp: None,
     interop_message_expiry_window: DEFAULT_INTEROP_MESSAGE_EXPIRY_WINDOW,
     batch_authenticator_address: None,
+    batch_auth_lookback_window: None,
 };
