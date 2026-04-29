@@ -6,9 +6,9 @@ use alloy_eips::eip1559::BaseFeeParams;
 use alloy_primitives::Address;
 
 use crate::{
-    AddressList, AltDAConfig, BaseFeeConfig, ChainGenesis, GRANITE_CHANNEL_TIMEOUT, HardForkConfig,
-    Roles, RollupConfig, SuperchainLevel, base_fee_params, base_fee_params_canyon,
-    params::base_fee_config, rollup::DEFAULT_INTEROP_MESSAGE_EXPIRY_WINDOW,
+    base_fee_params, base_fee_params_canyon, params::base_fee_config,
+    rollup::DEFAULT_INTEROP_MESSAGE_EXPIRY_WINDOW, AddressList, AltDAConfig, BaseFeeConfig,
+    ChainGenesis, HardForkConfig, Roles, RollupConfig, SuperchainLevel, GRANITE_CHANNEL_TIMEOUT,
 };
 
 /// L1 chain configuration from the `alloy-genesis` crate.

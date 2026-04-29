@@ -101,8 +101,8 @@ impl RollupConfig {
     ///
     /// Returns `false` if `interop_time` is not configured.
     pub fn is_interop_activation_block(&self, block: BlockInfo) -> bool {
-        self.is_interop(block.timestamp)
-            && !self.is_interop(block.timestamp.saturating_sub(self.block_time))
+        self.is_interop(block.timestamp) &&
+            !self.is_interop(block.timestamp.saturating_sub(self.block_time))
     }
 }
 

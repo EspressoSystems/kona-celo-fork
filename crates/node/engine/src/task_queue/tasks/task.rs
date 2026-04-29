@@ -123,10 +123,10 @@ impl PartialEq for EngineTask {
     fn eq(&self, other: &Self) -> bool {
         matches!(
             (self, other),
-            (Self::Insert(_), Self::Insert(_))
-                | (Self::Build(_), Self::Build(_))
-                | (Self::Consolidate(_), Self::Consolidate(_))
-                | (Self::Finalize(_), Self::Finalize(_))
+            (Self::Insert(_), Self::Insert(_)) |
+                (Self::Build(_), Self::Build(_)) |
+                (Self::Consolidate(_), Self::Consolidate(_)) |
+                (Self::Finalize(_), Self::Finalize(_))
         )
     }
 }
