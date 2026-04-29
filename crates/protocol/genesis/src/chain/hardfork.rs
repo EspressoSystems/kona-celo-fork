@@ -72,6 +72,22 @@ pub struct HardForkConfig {
     /// otherwise.
     #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
     pub interop_time: Option<u64>,
+    /// `espresso_enforcement_time` sets the activation time for the Espresso event-only batch
+    /// authorization enforcement. This is an Espresso-specific, orthogonal toggle (not part of
+    /// the chained OP Stack hardfork sequence).
+    ///
+    /// Pre-fork, the derivation pipeline runs vanilla OP Stack semantics: a batch transaction is
+    /// authorized iff its sender matches the `SystemConfig.batcherHash`, and the
+    /// `BatchAuthenticator` event lookback is bypassed entirely.
+    ///
+    /// Post-fork, batches must be authenticated by `BatchInfoAuthenticated` events emitted by the
+    /// configured `BatchAuthenticator` contract within the lookback window; sender-based fallback
+    /// is rejected.
+    ///
+    /// Active if `espresso_enforcement_time` != None && L2 block timestamp >=
+    /// Some(espresso_enforcement_time), inactive otherwise.
+    #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+    pub espresso_enforcement_time: Option<u64>,
 }
 
 impl Display for HardForkConfig {
@@ -104,6 +120,7 @@ impl HardForkConfig {
             ("Isthmus", self.isthmus_time),
             ("Jovian", self.jovian_time),
             ("Interop", self.interop_time),
+            ("Espresso Enforcement", self.espresso_enforcement_time),
         ]
         .into_iter()
     }
@@ -139,6 +156,7 @@ mod tests {
             isthmus_time: None,
             jovian_time: None,
             interop_time: None,
+            espresso_enforcement_time: None,
         };
 
         let deserialized: HardForkConfig = serde_json::from_str(raw).unwrap();
@@ -186,6 +204,7 @@ mod tests {
             isthmus_time: None,
             jovian_time: None,
             interop_time: None,
+            espresso_enforcement_time: None,
         };
 
         let deserialized: HardForkConfig = toml::from_str(raw).unwrap();
@@ -220,6 +239,7 @@ mod tests {
             isthmus_time: Some(9),
             jovian_time: Some(10),
             interop_time: Some(11),
+            espresso_enforcement_time: Some(12),
         };
 
         let mut iter = hardforks.iter();
@@ -234,6 +254,7 @@ mod tests {
         assert_eq!(iter.next(), Some(("Isthmus", Some(9))));
         assert_eq!(iter.next(), Some(("Jovian", Some(10))));
         assert_eq!(iter.next(), Some(("Interop", Some(11))));
+        assert_eq!(iter.next(), Some(("Espresso Enforcement", Some(12))));
         assert_eq!(iter.next(), None);
     }
 }

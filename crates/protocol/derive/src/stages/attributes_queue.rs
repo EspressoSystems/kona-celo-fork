@@ -196,7 +196,7 @@ where
                 self.batch = None;
                 self.prev.signal(s).await?;
             }
-            s @ Signal::ProvideBlock(_) => {
+            s @ Signal::ProvideBlock(_) | s @ Signal::SetL2BlockTime(_) => {
                 self.prev.signal(s).await?;
             }
         }

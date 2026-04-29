@@ -29,6 +29,8 @@ pub struct IndexedTraversal<Provider: ChainProvider> {
     pub system_config: SystemConfig,
     /// A reference to the rollup config.
     pub rollup_config: Arc<RollupConfig>,
+    /// The L2 block timestamp the pipeline is currently deriving towards, if known.
+    pub l2_block_time: Option<u64>,
 }
 
 #[async_trait]
@@ -45,6 +47,14 @@ impl<F: ChainProvider + Send> L1RetrievalProvider for IndexedTraversal<F> {
             Err(PipelineError::Eof.temp())
         }
     }
+
+    fn set_l2_block_time(&mut self, l2_block_time: u64) {
+        self.l2_block_time = Some(l2_block_time);
+    }
+
+    fn l2_block_time(&self) -> Option<u64> {
+        self.l2_block_time
+    }
 }
 
 impl<F: ChainProvider> IndexedTraversal<F> {
@@ -56,6 +66,7 @@ impl<F: ChainProvider> IndexedTraversal<F> {
             done: false,
             system_config: SystemConfig::default(),
             rollup_config: cfg,
+            l2_block_time: None,
         }
     }
 
@@ -138,12 +149,15 @@ impl<F: ChainProvider> OriginProvider for IndexedTraversal<F> {
 impl<F: ChainProvider + Send> SignalReceiver for IndexedTraversal<F> {
     async fn signal(&mut self, signal: Signal) -> PipelineResult<()> {
         match signal {
-            Signal::Reset(ResetSignal { l1_origin, system_config, .. }) |
-            Signal::Activation(ActivationSignal { l1_origin, system_config, .. }) => {
+            Signal::Reset(ResetSignal { l1_origin, system_config, .. })
+            | Signal::Activation(ActivationSignal { l1_origin, system_config, .. }) => {
                 self.update_origin(l1_origin);
                 self.system_config = system_config.expect("System config must be provided.");
             }
             Signal::ProvideBlock(block_info) => self.provide_next_block(block_info).await?,
+            Signal::SetL2BlockTime(t) => {
+                self.l2_block_time = Some(t);
+            }
             _ => {}
         }
 

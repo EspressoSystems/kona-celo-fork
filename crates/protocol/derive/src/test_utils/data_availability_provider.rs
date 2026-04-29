@@ -18,7 +18,7 @@ pub struct TestDAP {
 impl DataAvailabilityProvider for TestDAP {
     type Item = Bytes;
 
-    async fn next(&mut self, _: &BlockInfo, _: Address) -> PipelineResult<Self::Item> {
+    async fn next(&mut self, _: &BlockInfo, _: Address, _: u64) -> PipelineResult<Self::Item> {
         self.results.pop().unwrap_or(Err(PipelineError::Eof.temp()))
     }
 

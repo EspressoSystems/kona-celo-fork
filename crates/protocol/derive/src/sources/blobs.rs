@@ -32,9 +32,14 @@ where
     pub data: Vec<BlobData>,
     /// Whether the source is open.
     pub open: bool,
-    /// Batch authentication configuration. When `Some`, event-based batch authentication
-    /// is used. When `None`, legacy sender-based authentication is used.
+    /// Batch authentication configuration. When `Some` and Espresso enforcement is active for
+    /// the L2 block timestamp the pipeline is deriving towards, event-based batch authentication
+    /// is used. Otherwise (pre-fork or no auth contract configured) the source falls back to
+    /// vanilla OP Stack sender verification.
     pub batch_auth_config: Option<BatchAuthConfig>,
+    /// L2 timestamp at which Espresso event-only batch authorization enforcement activates.
+    /// Sourced from [`kona_genesis::HardForkConfig::espresso_enforcement_time`].
+    pub espresso_enforcement_time: Option<u64>,
     /// LRU caches for batch auth lookback window traversal (receipts + headers).
     pub(crate) auth_cache: BatchAuthCache,
 }
@@ -50,6 +55,7 @@ where
         blob_fetcher: B,
         batcher_address: Address,
         batch_auth_config: Option<BatchAuthConfig>,
+        espresso_enforcement_time: Option<u64>,
     ) -> Self {
         Self {
             chain_provider,
@@ -58,20 +64,28 @@ where
             data: Vec::new(),
             open: false,
             batch_auth_config,
+            espresso_enforcement_time,
             auth_cache: BatchAuthCache::new(),
         }
     }
 
+    /// Returns true when Espresso event-only batch authorization enforcement is active at the
+    /// given L2 block timestamp.
+    fn is_enforcement_active(&self, l2_block_time: u64) -> bool {
+        self.espresso_enforcement_time.is_some_and(|t| l2_block_time >= t)
+    }
+
     /// Extracts blob data and indexed blob hashes from the given transactions.
     ///
-    /// When `authenticated_hashes` is provided (event-based auth), each transaction is checked
-    /// against the authenticated set or the fallback batcher address. When `None` (legacy mode),
-    /// each transaction's sender is checked against `batcher_address`.
+    /// `enforcement_active` is computed from the L2 block timestamp by the caller. When `true`,
+    /// each transaction is authorized via the `authenticated_hashes` set; when `false`, vanilla
+    /// OP Stack sender verification against `batcher_address` is used.
     fn extract_blob_data(
         &self,
         txs: Vec<TxEnvelope>,
         batcher_address: Address,
         authenticated_hashes: Option<&BTreeSet<B256>>,
+        enforcement_active: bool,
     ) -> (Vec<BlobData>, Vec<IndexedBlobHash>) {
         let empty_set = BTreeSet::new();
         let auth_hashes = authenticated_hashes.unwrap_or(&empty_set);
@@ -105,12 +119,10 @@ where
             // Compute the batch hash and check authorization.
             // For blob txs: hash is keccak256(concat(blob_versioned_hashes))
             // For calldata txs: hash is keccak256(calldata)
-            let batch_hash = if let Some(ref bh) = blob_hashes {
-                let hash_refs: Vec<B256> = bh.clone();
-                compute_blob_batch_hash(&hash_refs)
-            } else {
-                compute_calldata_batch_hash(&calldata)
-            };
+            let batch_hash = blob_hashes.as_ref().map_or_else(
+                || compute_calldata_batch_hash(&calldata),
+                |bh| compute_blob_batch_hash(bh),
+            );
 
             if !is_batch_authorized(
                 &tx,
@@ -118,6 +130,7 @@ where
                 self.batch_auth_config.as_ref(),
                 auth_hashes,
                 batcher_address,
+                enforcement_active,
             ) {
                 index += blob_hashes.map_or(0, |h| h.len() as u64);
                 continue;
@@ -164,6 +177,7 @@ where
         &mut self,
         block_ref: &BlockInfo,
         batcher_address: Address,
+        l2_block_time: u64,
     ) -> Result<(), BlobProviderError> {
         if self.open {
             return Ok(());
@@ -175,8 +189,11 @@ where
             .await
             .map_err(|e| BlobProviderError::Backend(e.to_string()))?;
 
-        // Collect authenticated batch hashes when batch auth is enabled.
-        let authenticated_hashes: Option<BTreeSet<B256>> =
+        let enforcement_active = self.is_enforcement_active(l2_block_time);
+
+        // Pre-fork the lookback walk is bypassed entirely so derivation is byte-identical to
+        // upstream OP Stack (the BatchAuthenticator events are still emitted on L1 but ignored).
+        let authenticated_hashes: Option<BTreeSet<B256>> = if enforcement_active {
             if let Some(ref config) = self.batch_auth_config {
                 Some(
                     collect_authenticated_batches(
@@ -190,10 +207,17 @@ where
                 )
             } else {
                 None
-            };
+            }
+        } else {
+            None
+        };
 
-        let (mut data, blob_hashes) =
-            self.extract_blob_data(info.1, batcher_address, authenticated_hashes.as_ref());
+        let (mut data, blob_hashes) = self.extract_blob_data(
+            info.1,
+            batcher_address,
+            authenticated_hashes.as_ref(),
+            enforcement_active,
+        );
 
         // If there are no hashes, set the calldata and return.
         if blob_hashes.is_empty() {
@@ -252,8 +276,9 @@ where
         &mut self,
         block_ref: &BlockInfo,
         batcher_address: Address,
+        l2_block_time: u64,
     ) -> PipelineResult<Self::Item> {
-        self.load_blobs(block_ref, batcher_address).await?;
+        self.load_blobs(block_ref, batcher_address, l2_block_time).await?;
 
         let next_data = self.next_data()?;
         if let Some(c) = next_data.calldata {
@@ -266,7 +291,7 @@ where
             Ok(d) => Ok(d),
             Err(_) => {
                 warn!(target: "blob_source", "Failed to decode blob data, skipping");
-                self.next(block_ref, batcher_address).await
+                self.next(block_ref, batcher_address, l2_block_time).await
             }
         }
     }
@@ -291,8 +316,12 @@ pub(crate) mod tests {
         let chain_provider = TestChainProvider::default();
         let blob_fetcher = TestBlobProvider::default();
         let batcher_address = Address::default();
-        BlobSource::new(chain_provider, blob_fetcher, batcher_address, None)
+        BlobSource::new(chain_provider, blob_fetcher, batcher_address, None, None)
     }
+
+    /// Pre-fork: an L2 block time of 0 with no enforcement timestamp set means we run vanilla
+    /// OP Stack semantics (sender-based authorization, BatchAuthenticator events ignored).
+    const PRE_FORK_L2_TIME: u64 = 0;
 
     pub(crate) fn valid_blob_txs() -> Vec<TxEnvelope> {
         // https://sepolia.etherscan.io/getRawTx?tx=0x9a22ccb0029bc8b0ddd073be1a1d923b7ae2b2ea52100bae0db4424f9107e9c0
@@ -305,14 +334,16 @@ pub(crate) mod tests {
     async fn test_load_blobs_open() {
         let mut source = default_test_blob_source();
         source.open = true;
-        assert!(source.load_blobs(&BlockInfo::default(), Address::ZERO).await.is_ok());
+        assert!(
+            source.load_blobs(&BlockInfo::default(), Address::ZERO, PRE_FORK_L2_TIME).await.is_ok()
+        );
     }
 
     #[tokio::test]
     async fn test_load_blobs_chain_provider_err() {
         let mut source = default_test_blob_source();
         assert!(matches!(
-            source.load_blobs(&BlockInfo::default(), Address::ZERO).await,
+            source.load_blobs(&BlockInfo::default(), Address::ZERO, PRE_FORK_L2_TIME).await,
             Err(BlobProviderError::Backend(_))
         ));
     }
@@ -323,7 +354,9 @@ pub(crate) mod tests {
         let block_info = BlockInfo::default();
         source.chain_provider.insert_block_with_transactions(0, block_info, Vec::new());
         assert!(!source.open); // Source is not open by default.
-        assert!(source.load_blobs(&BlockInfo::default(), Address::ZERO).await.is_ok());
+        assert!(
+            source.load_blobs(&BlockInfo::default(), Address::ZERO, PRE_FORK_L2_TIME).await.is_ok()
+        );
         assert!(source.data.is_empty());
         assert!(source.open);
     }
@@ -340,7 +373,7 @@ pub(crate) mod tests {
         source.blob_fetcher.should_error = true;
         source.chain_provider.insert_block_with_transactions(1, block_info, txs);
         assert!(matches!(
-            source.load_blobs(&BlockInfo::default(), batcher_address).await,
+            source.load_blobs(&BlockInfo::default(), batcher_address, PRE_FORK_L2_TIME).await,
             Err(BlobProviderError::Backend(_))
         ));
     }
@@ -377,7 +410,7 @@ pub(crate) mod tests {
         for hash in hashes {
             source.blob_fetcher.insert_blob(hash, Blob::with_last_byte(1u8));
         }
-        source.load_blobs(&BlockInfo::default(), batcher_address).await.unwrap();
+        source.load_blobs(&BlockInfo::default(), batcher_address, PRE_FORK_L2_TIME).await.unwrap();
         assert!(source.open);
         assert!(!source.data.is_empty());
     }
@@ -387,7 +420,8 @@ pub(crate) mod tests {
         let mut source = default_test_blob_source();
         source.open = true;
 
-        let err = source.next(&BlockInfo::default(), Address::ZERO).await.unwrap_err();
+        let err =
+            source.next(&BlockInfo::default(), Address::ZERO, PRE_FORK_L2_TIME).await.unwrap_err();
         assert!(matches!(err, PipelineErrorKind::Temporary(PipelineError::Eof)));
     }
 
@@ -397,7 +431,8 @@ pub(crate) mod tests {
         source.open = true;
         source.data.push(BlobData { data: None, calldata: Some(Bytes::default()) });
 
-        let data = source.next(&BlockInfo::default(), Address::ZERO).await.unwrap();
+        let data =
+            source.next(&BlockInfo::default(), Address::ZERO, PRE_FORK_L2_TIME).await.unwrap();
         assert_eq!(data, Bytes::default());
     }
 
@@ -407,14 +442,16 @@ pub(crate) mod tests {
         source.open = true;
         source.data.push(BlobData { data: Some(Bytes::from(&[1; 32])), calldata: None });
 
-        let err = source.next(&BlockInfo::default(), Address::ZERO).await.unwrap_err();
+        let err =
+            source.next(&BlockInfo::default(), Address::ZERO, PRE_FORK_L2_TIME).await.unwrap_err();
         assert!(matches!(err, PipelineErrorKind::Temporary(PipelineError::Eof)));
     }
 
     #[tokio::test]
     async fn test_blob_source_pipeline_error() {
         let mut source = default_test_blob_source();
-        let err = source.next(&BlockInfo::default(), Address::ZERO).await.unwrap_err();
+        let err =
+            source.next(&BlockInfo::default(), Address::ZERO, PRE_FORK_L2_TIME).await.unwrap_err();
         assert!(matches!(err, PipelineErrorKind::Temporary(PipelineError::Provider(_))));
     }
 }

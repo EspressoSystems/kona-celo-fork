@@ -24,6 +24,22 @@ pub trait L1RetrievalProvider {
 
     /// Returns the batcher [`Address`] from the [kona_genesis::SystemConfig].
     fn batcher_addr(&self) -> Address;
+
+    /// Sets the next L2 block timestamp that the pipeline is currently deriving towards.
+    ///
+    /// The pipeline driver is expected to call this before each derivation step so that
+    /// downstream stages (notably the data source via [`L1Retrieval`]) can gate
+    /// hardfork-dependent behavior on the L2 timestamp. When unset, callers should treat the
+    /// time as `0` (pre-fork / vanilla OP semantics).
+    fn set_l2_block_time(&mut self, _l2_block_time: u64) {}
+
+    /// Returns the next L2 block timestamp the pipeline is deriving towards, if known.
+    ///
+    /// Returns `None` if the driver hasn't called [`Self::set_l2_block_time`] yet (e.g. on
+    /// cold start). Consumers should treat `None` as pre-fork.
+    fn l2_block_time(&self) -> Option<u64> {
+        None
+    }
 }
 
 /// The [`L1Retrieval`] stage of the derivation pipeline.
@@ -91,7 +107,8 @@ where
         // SAFETY: The above check ensures that `next` is not None.
         let next = self.next.as_ref().expect("infallible");
 
-        match self.provider.next(next, self.prev.batcher_addr()).await {
+        let l2_block_time = self.prev.l2_block_time().unwrap_or(0);
+        match self.provider.next(next, self.prev.batcher_addr(), l2_block_time).await {
             Ok(data) => Ok(data),
             Err(e) => {
                 if let PipelineErrorKind::Temporary(PipelineError::Eof) = e {
@@ -123,8 +140,8 @@ where
     async fn signal(&mut self, signal: Signal) -> PipelineResult<()> {
         self.prev.signal(signal).await?;
         match signal {
-            Signal::Reset(ResetSignal { l1_origin, .. }) |
-            Signal::Activation(ActivationSignal { l1_origin, .. }) => {
+            Signal::Reset(ResetSignal { l1_origin, .. })
+            | Signal::Activation(ActivationSignal { l1_origin, .. }) => {
                 self.next = Some(l1_origin);
             }
             _ => {}

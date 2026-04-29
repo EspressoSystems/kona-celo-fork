@@ -5,14 +5,20 @@
 //! pipeline scans L1 receipts for `BatchInfoAuthenticated(bytes32 indexed commitment)` events
 //! emitted by the `BatchAuthenticator` contract within a lookback window.
 //!
-//! Two authorization paths are supported:
-//! 1. **Espresso batcher**: Must have a matching `BatchInfoAuthenticated` event where the commitment
-//!    matches the batch content hash. Sender identity is irrelevant.
-//! 2. **Fallback batcher**: Authorized via traditional sender address verification against
-//!    `batcher_address`. No auth event needed.
+//! Whether batches must be authorized by an event is gated by the
+//! [`espresso_enforcement_time`](kona_genesis::HardForkConfig::espresso_enforcement_time)
+//! L2-timestamp hardfork:
 //!
-//! When batch auth is not configured (i.e., `batch_authenticator_address` is `None`), the pipeline
-//! falls back to the standard OP Stack sender verification.
+//! - **Pre-fork (or fork unset):** the pipeline runs vanilla OP Stack semantics. A batch is
+//!   authorized iff its sender matches `batcher_address`. The `BatchAuthenticator` event
+//!   lookback is bypassed entirely.
+//! - **Post-fork:** a batch is authorized iff its commitment hash matches a
+//!   `BatchInfoAuthenticated(bytes32 indexed commitment)` event emitted by the configured
+//!   `BatchAuthenticator` contract within the lookback window. Sender-based fallback is
+//!   rejected.
+//!
+//! This matches the verifier-side semantics of upstream Go PR #409
+//! (`EspressoSystems/optimism-espresso-integration`).
 //!
 //! Using event scanning (rather than L1 contract state reads) keeps the derivation pipeline
 //! compatible with the op-program fault proof environment, which can only access L1 block headers,
@@ -162,33 +168,34 @@ impl BatchAuthCache {
     }
 }
 
-/// Checks whether a batch transaction is authorized, using either event-based authentication
-/// or legacy sender verification.
+/// Checks whether a batch transaction is authorized.
 ///
-/// When batch auth is enabled (`auth_config` is `Some`), there are two authorization paths:
-/// 1. **Espresso batcher**: must have a matching `BatchInfoAuthenticated` event (checked via
-///    `authenticated_hashes`)
-/// 2. **Fallback batcher**: authorized via sender verification against `batcher_address`
+/// Behaviour is gated by `enforcement_active` (computed by the caller from
+/// `RollupConfig::is_espresso_enforcement_active(l2_block_time)`):
 ///
-/// When batch auth is not configured (`auth_config` is `None`), standard OP Stack sender
-/// verification is used against `batcher_address`.
+/// - **`enforcement_active = false`** (pre-fork / vanilla OP Stack): authorized iff the
+///   transaction sender matches `batcher_address`. `auth_config` and `authenticated_hashes` are
+///   ignored.
+/// - **`enforcement_active = true`** (post-fork): authorized iff a `BatchAuthenticator` is
+///   configured (`auth_config.is_some()`) AND `batch_hash` is present in
+///   `authenticated_hashes`. Sender-based fallback is rejected.
+///
+/// If the gap between the authentication transaction and the batch data exceeds the
+/// [`BATCH_AUTH_LOOKBACK_WINDOW`], it's the batcher's responsibility to detect this and
+/// re-submit the authentication transaction and batch data.
 pub(crate) fn is_batch_authorized(
     tx: &TxEnvelope,
     batch_hash: B256,
     auth_config: Option<&BatchAuthConfig>,
     authenticated_hashes: &BTreeSet<B256>,
     batcher_address: Address,
+    enforcement_active: bool,
 ) -> bool {
-    // Event-based authentication: Espresso batcher must have an auth event
-    // in the lookback window. If the gap between authentication transaction
-    // and the batch data is more than the lookback window, it's batcher's
-    // responsibility to detect this and re-submit the authentication transaction
-    // and batch data.
-    if auth_config.is_some() && authenticated_hashes.contains(&batch_hash) {
-        return true;
+    if enforcement_active {
+        // Post-fork: event-only authorization. Sender-based fallback is rejected.
+        return auth_config.is_some() && authenticated_hashes.contains(&batch_hash);
     }
-    // Sender verification against batcher_address: used as fallback when batch auth is
-    // enabled, and as the sole check in legacy mode.
+    // Pre-fork: vanilla OP Stack sender verification.
     tx.recover_signer().map(|sender| sender == batcher_address).unwrap_or(false)
 }
 
@@ -296,7 +303,7 @@ mod tests {
     }
 
     #[test]
-    fn test_is_batch_authorized_tee_path() {
+    fn test_is_batch_authorized_post_fork_event_path() {
         let auth_addr = address!("1234567890123456789012345678901234567890");
         let config = BatchAuthConfig { authenticator_address: auth_addr };
         let batch_hash = b256!("abcdef0000000000000000000000000000000000000000000000000000000000");
@@ -304,43 +311,101 @@ mod tests {
         authenticated.insert(batch_hash);
 
         let tx = test_legacy_tx(Address::ZERO);
-        assert!(is_batch_authorized(&tx, batch_hash, Some(&config), &authenticated, Address::ZERO));
+        // Post-fork, event present: authorized regardless of sender.
+        assert!(is_batch_authorized(
+            &tx,
+            batch_hash,
+            Some(&config),
+            &authenticated,
+            Address::ZERO,
+            true,
+        ));
     }
 
     #[test]
-    fn test_is_batch_authorized_not_authenticated() {
+    fn test_is_batch_authorized_post_fork_no_event_rejected() {
         let auth_addr = address!("1234567890123456789012345678901234567890");
         let config = BatchAuthConfig { authenticator_address: auth_addr };
         let batch_hash = b256!("abcdef0000000000000000000000000000000000000000000000000000000000");
         let authenticated = BTreeSet::new(); // empty
 
         let tx = test_legacy_tx(Address::ZERO);
+        // Post-fork, no event: rejected even for an empty hash set.
         assert!(!is_batch_authorized(
             &tx,
             batch_hash,
             Some(&config),
             &authenticated,
-            Address::ZERO
+            Address::ZERO,
+            true,
         ));
     }
 
     #[test]
-    fn test_is_batch_authorized_legacy_mode() {
+    fn test_is_batch_authorized_post_fork_sender_fallback_rejected() {
+        // Even when sender matches batcher_address, post-fork requires an event.
         let batch_hash = B256::ZERO;
         let authenticated = BTreeSet::new();
 
         let tx = test_legacy_tx(Address::ZERO);
         let sender = tx.recover_signer().unwrap();
-        // In legacy mode, sender must match batcher_address
-        assert!(is_batch_authorized(&tx, batch_hash, None, &authenticated, sender));
-        // Wrong batcher address
+        // No auth_config => no event-based authorization possible => rejected.
+        assert!(!is_batch_authorized(&tx, batch_hash, None, &authenticated, sender, true));
+
+        // With an auth_config but no matching event: still rejected.
+        let auth_addr = address!("1234567890123456789012345678901234567890");
+        let config = BatchAuthConfig { authenticator_address: auth_addr };
+        assert!(
+            !is_batch_authorized(&tx, batch_hash, Some(&config), &authenticated, sender, true,)
+        );
+    }
+
+    #[test]
+    fn test_is_batch_authorized_pre_fork_vanilla_sender_path() {
+        let batch_hash = B256::ZERO;
+        let authenticated = BTreeSet::new();
+
+        let tx = test_legacy_tx(Address::ZERO);
+        let sender = tx.recover_signer().unwrap();
+        // Pre-fork: sender matches batcher_address => authorized.
+        assert!(is_batch_authorized(&tx, batch_hash, None, &authenticated, sender, false));
+        // Pre-fork: sender mismatch => rejected.
         assert!(!is_batch_authorized(
             &tx,
             batch_hash,
             None,
             &authenticated,
             address!("0000000000000000000000000000000000000001"),
+            false,
         ));
+    }
+
+    #[test]
+    fn test_is_batch_authorized_pre_fork_ignores_auth_event() {
+        // Pre-fork, even if a matching auth event exists, only the sender check is honored.
+        let auth_addr = address!("1234567890123456789012345678901234567890");
+        let config = BatchAuthConfig { authenticator_address: auth_addr };
+        let batch_hash = b256!("abcdef0000000000000000000000000000000000000000000000000000000000");
+        let mut authenticated = BTreeSet::new();
+        authenticated.insert(batch_hash);
+
+        let tx = test_legacy_tx(Address::ZERO);
+        let sender = tx.recover_signer().unwrap();
+        let wrong_addr = address!("0000000000000000000000000000000000000001");
+
+        // Sender mismatch: even with an event present, we reject (event path is gated off).
+        assert!(!is_batch_authorized(
+            &tx,
+            batch_hash,
+            Some(&config),
+            &authenticated,
+            wrong_addr,
+            false,
+        ));
+        // Sender match: authorized.
+        assert!(
+            is_batch_authorized(&tx, batch_hash, Some(&config), &authenticated, sender, false,)
+        );
     }
 
     #[test]

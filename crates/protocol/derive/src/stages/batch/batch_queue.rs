@@ -452,7 +452,7 @@ where
                 self.batches.clear();
                 self.next_spans.clear();
             }
-            s @ Signal::ProvideBlock(_) => {
+            s @ Signal::ProvideBlock(_) | s @ Signal::SetL2BlockTime(_) => {
                 self.prev.signal(s).await?;
             }
         }

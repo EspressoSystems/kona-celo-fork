@@ -93,8 +93,8 @@ where
     /// The `signal` is contains the signal variant with any necessary parameters.
     async fn signal(&mut self, signal: Signal) -> PipelineResult<()> {
         match signal {
-            mut s @ Signal::Reset(ResetSignal { l2_safe_head, .. }) |
-            mut s @ Signal::Activation(ActivationSignal { l2_safe_head, .. }) => {
+            mut s @ Signal::Reset(ResetSignal { l2_safe_head, .. })
+            | mut s @ Signal::Activation(ActivationSignal { l2_safe_head, .. }) => {
                 let system_config = self
                     .l2_chain_provider
                     .system_config_by_number(
@@ -120,6 +120,9 @@ where
                 self.attributes.signal(signal).await?;
             }
             Signal::ProvideBlock(_) => {
+                self.attributes.signal(signal).await?;
+            }
+            Signal::SetL2BlockTime(_) => {
                 self.attributes.signal(signal).await?;
             }
         }
@@ -178,6 +181,16 @@ where
             crate::metrics::Metrics::PIPELINE_STEP_BLOCK,
             cursor.block_info.number as f64
         );
+
+        // Inform downstream stages of the L2 block timestamp this step is targeting so they
+        // can gate hardfork-dependent behavior on it (e.g. Espresso event-only batch
+        // authorization enforcement). Errors here are non-fatal — the signal is best-effort.
+        let next_l2_block_time =
+            cursor.block_info.timestamp.saturating_add(self.rollup_config.block_time);
+        if let Err(err) = self.attributes.signal(Signal::SetL2BlockTime(next_l2_block_time)).await {
+            warn!(target: "pipeline", "Failed to propagate SetL2BlockTime signal: {:?}", err);
+        }
+
         match self.attributes.next_attributes(cursor).await {
             Ok(a) => {
                 trace!(target: "pipeline", "Prepared L2 attributes: {:?}", a);
