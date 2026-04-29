@@ -29,12 +29,14 @@ where
     /// Whether the calldata source is open.
     pub open: bool,
     /// Batch authentication configuration. When `Some` and Espresso enforcement is active for
-    /// the L2 block timestamp the pipeline is deriving towards, event-based batch authentication
-    /// is used. Otherwise (pre-fork or no auth contract configured) the source falls back to
-    /// vanilla OP Stack sender verification.
+    /// the L1 origin time of the block being scanned, event-based batch authentication is used.
+    /// Otherwise (pre-fork or no auth contract configured) the source falls back to vanilla OP
+    /// Stack sender verification.
     pub batch_auth_config: Option<BatchAuthConfig>,
-    /// L2 timestamp at which Espresso event-only batch authorization enforcement activates.
-    /// Sourced from [`kona_genesis::HardForkConfig::espresso_enforcement_time`].
+    /// Activation timestamp for the Espresso event-only batch authorization enforcement.
+    /// Sourced from [`kona_genesis::HardForkConfig::espresso_enforcement_time`]. The fork is
+    /// conceptually an L2-timestamp hardfork but the per-L1-block decision in the data source is
+    /// gated on the L1 origin time, mirroring the upstream `ecotoneTime` precedent.
     pub espresso_enforcement_time: Option<u64>,
     /// LRU caches for batch auth lookback window traversal (receipts + headers).
     pub(crate) auth_cache: BatchAuthCache,
@@ -60,9 +62,9 @@ impl<CP: ChainProvider + Send> CalldataSource<CP> {
     }
 
     /// Returns true when Espresso event-only batch authorization enforcement is active at the
-    /// given L2 block timestamp.
-    fn is_enforcement_active(&self, l2_block_time: u64) -> bool {
-        self.espresso_enforcement_time.is_some_and(|t| l2_block_time >= t)
+    /// given L1 origin time.
+    fn is_enforcement_active(&self, l1_origin_time: u64) -> bool {
+        self.espresso_enforcement_time.is_some_and(|t| l1_origin_time >= t)
     }
 
     /// Loads the calldata into the source if it is not open.
@@ -70,7 +72,6 @@ impl<CP: ChainProvider + Send> CalldataSource<CP> {
         &mut self,
         block_ref: &BlockInfo,
         batcher_address: Address,
-        l2_block_time: u64,
     ) -> Result<(), CP::Error> {
         if self.open {
             return Ok(());
@@ -79,7 +80,7 @@ impl<CP: ChainProvider + Send> CalldataSource<CP> {
         let (_, txs) =
             self.chain_provider.block_info_and_transactions_by_hash(block_ref.hash).await?;
 
-        let enforcement_active = self.is_enforcement_active(l2_block_time);
+        let enforcement_active = self.is_enforcement_active(block_ref.timestamp);
 
         // Pre-fork the lookback walk is bypassed entirely so derivation is byte-identical to
         // upstream OP Stack (the BatchAuthenticator events are still emitted on L1 but ignored).
@@ -155,9 +156,8 @@ impl<CP: ChainProvider + Send> DataAvailabilityProvider for CalldataSource<CP> {
         &mut self,
         block_ref: &BlockInfo,
         batcher_address: Address,
-        l2_block_time: u64,
     ) -> PipelineResult<Self::Item> {
-        self.load_calldata(block_ref, batcher_address, l2_block_time).await.map_err(Into::into)?;
+        self.load_calldata(block_ref, batcher_address).await.map_err(Into::into)?;
         self.calldata.pop_front().ok_or(PipelineError::Eof.temp())
     }
 
@@ -243,36 +243,26 @@ mod tests {
         assert!(!source.open);
     }
 
-    /// Pre-fork: an L2 block time of 0 with no enforcement timestamp set means we run vanilla
-    /// OP Stack semantics (sender-based authorization, BatchAuthenticator events ignored).
-    const PRE_FORK_L2_TIME: u64 = 0;
-
-    /// Post-fork: with `espresso_enforcement_time = Some(100)`, an L2 block time >= 100 is
-    /// post-fork (event-only authorization, sender fallback rejected).
+    /// Activation timestamp used by post-fork tests: paired with a `block_info.timestamp` of
+    /// at least this value, the data source treats the block as post-Espresso-enforcement.
+    /// Pre-fork tests leave `espresso_enforcement_time = None`, so the gate is inactive
+    /// regardless of `block_info.timestamp`.
     const ENFORCEMENT_TIME: u64 = 100;
-    const POST_FORK_L2_TIME: u64 = 100;
+
+    /// L1 origin timestamp >= [`ENFORCEMENT_TIME`] used by post-fork tests.
+    const POST_FORK_L1_TIME: u64 = 100;
 
     #[tokio::test]
     async fn test_load_calldata_open() {
         let mut source = default_test_calldata_source();
         source.open = true;
-        assert!(
-            source
-                .load_calldata(&BlockInfo::default(), Address::ZERO, PRE_FORK_L2_TIME)
-                .await
-                .is_ok()
-        );
+        assert!(source.load_calldata(&BlockInfo::default(), Address::ZERO).await.is_ok());
     }
 
     #[tokio::test]
     async fn test_load_calldata_provider_err() {
         let mut source = default_test_calldata_source();
-        assert!(
-            source
-                .load_calldata(&BlockInfo::default(), Address::ZERO, PRE_FORK_L2_TIME)
-                .await
-                .is_err()
-        );
+        assert!(source.load_calldata(&BlockInfo::default(), Address::ZERO).await.is_err());
     }
 
     #[tokio::test]
@@ -281,12 +271,7 @@ mod tests {
         let block_info = BlockInfo::default();
         source.chain_provider.insert_block_with_transactions(0, block_info, Vec::new());
         assert!(!source.open); // Source is not open by default.
-        assert!(
-            source
-                .load_calldata(&BlockInfo::default(), Address::ZERO, PRE_FORK_L2_TIME)
-                .await
-                .is_ok()
-        );
+        assert!(source.load_calldata(&BlockInfo::default(), Address::ZERO).await.is_ok());
         assert!(source.calldata.is_empty());
         assert!(source.open);
     }
@@ -299,12 +284,7 @@ mod tests {
         let tx = test_legacy_tx(batch_inbox_address);
         source.chain_provider.insert_block_with_transactions(0, block_info, vec![tx.clone()]);
         assert!(!source.open); // Source is not open by default.
-        assert!(
-            source
-                .load_calldata(&BlockInfo::default(), Address::ZERO, PRE_FORK_L2_TIME)
-                .await
-                .is_ok()
-        );
+        assert!(source.load_calldata(&BlockInfo::default(), Address::ZERO).await.is_ok());
         assert!(source.calldata.is_empty());
         assert!(source.open);
     }
@@ -322,11 +302,7 @@ mod tests {
         // Use the correct signer address as batcher_address
         assert!(
             source
-                .load_calldata(
-                    &BlockInfo::default(),
-                    tx.recover_signer().unwrap(),
-                    PRE_FORK_L2_TIME,
-                )
+                .load_calldata(&BlockInfo::default(), tx.recover_signer().unwrap())
                 .await
                 .is_ok()
         );
@@ -346,12 +322,7 @@ mod tests {
         assert!(!source.open);
         // Use wrong batcher address
         let wrong_batcher = address!("0000000000000000000000000000000000000001");
-        assert!(
-            source
-                .load_calldata(&BlockInfo::default(), wrong_batcher, PRE_FORK_L2_TIME)
-                .await
-                .is_ok()
-        );
+        assert!(source.load_calldata(&BlockInfo::default(), wrong_batcher).await.is_ok());
         assert!(source.calldata.is_empty()); // Rejected: wrong sender
         assert!(source.open);
     }
@@ -367,11 +338,7 @@ mod tests {
         assert!(!source.open);
         assert!(
             source
-                .load_calldata(
-                    &BlockInfo::default(),
-                    tx.recover_signer().unwrap(),
-                    PRE_FORK_L2_TIME,
-                )
+                .load_calldata(&BlockInfo::default(), tx.recover_signer().unwrap())
                 .await
                 .is_ok()
         );
@@ -390,11 +357,7 @@ mod tests {
         assert!(!source.open);
         assert!(
             source
-                .load_calldata(
-                    &BlockInfo::default(),
-                    tx.recover_signer().unwrap(),
-                    PRE_FORK_L2_TIME,
-                )
+                .load_calldata(&BlockInfo::default(), tx.recover_signer().unwrap())
                 .await
                 .is_ok()
         );
@@ -413,11 +376,7 @@ mod tests {
         assert!(!source.open);
         assert!(
             source
-                .load_calldata(
-                    &BlockInfo::default(),
-                    tx.recover_signer().unwrap(),
-                    PRE_FORK_L2_TIME,
-                )
+                .load_calldata(&BlockInfo::default(), tx.recover_signer().unwrap())
                 .await
                 .is_ok()
         );
@@ -429,7 +388,7 @@ mod tests {
     async fn test_next_err_loading_calldata() {
         let mut source = default_test_calldata_source();
         assert!(matches!(
-            source.next(&BlockInfo::default(), Address::ZERO, PRE_FORK_L2_TIME).await,
+            source.next(&BlockInfo::default(), Address::ZERO).await,
             Err(PipelineErrorKind::Temporary(_))
         ));
     }
@@ -449,7 +408,8 @@ mod tests {
         );
 
         let tx = test_legacy_tx(batch_inbox_address);
-        let block_info = BlockInfo::default();
+        // Construct the L1 block at a timestamp that activates the enforcement gate.
+        let block_info = BlockInfo { timestamp: POST_FORK_L1_TIME, ..Default::default() };
         source.chain_provider.insert_block_with_transactions(0, block_info, vec![tx.clone()]);
 
         // Compute the expected batch hash for the tx data (empty calldata)
@@ -463,7 +423,7 @@ mod tests {
         let header = alloy_consensus::Header { number: 0, ..Default::default() };
         source.chain_provider.insert_header(block_info.hash, header);
 
-        assert!(source.load_calldata(&block_info, Address::ZERO, POST_FORK_L2_TIME).await.is_ok());
+        assert!(source.load_calldata(&block_info, Address::ZERO).await.is_ok());
         assert!(!source.calldata.is_empty()); // Authenticated via event
         assert!(source.open);
     }
@@ -483,7 +443,7 @@ mod tests {
         );
 
         let tx = test_legacy_tx(batch_inbox_address);
-        let block_info = BlockInfo::default();
+        let block_info = BlockInfo { timestamp: POST_FORK_L1_TIME, ..Default::default() };
         source.chain_provider.insert_block_with_transactions(0, block_info, vec![tx.clone()]);
 
         // Insert empty receipts (no auth event)
@@ -493,7 +453,7 @@ mod tests {
         let header = alloy_consensus::Header { number: 0, ..Default::default() };
         source.chain_provider.insert_header(block_info.hash, header);
 
-        assert!(source.load_calldata(&block_info, Address::ZERO, POST_FORK_L2_TIME).await.is_ok());
+        assert!(source.load_calldata(&block_info, Address::ZERO).await.is_ok());
         assert!(source.calldata.is_empty()); // Not authenticated
         assert!(source.open);
     }
@@ -516,7 +476,7 @@ mod tests {
             Some(ENFORCEMENT_TIME),
         );
 
-        let block_info = BlockInfo::default();
+        let block_info = BlockInfo { timestamp: POST_FORK_L1_TIME, ..Default::default() };
         source.chain_provider.insert_block_with_transactions(0, block_info, vec![tx.clone()]);
 
         // Insert empty receipts (no auth event)
@@ -528,9 +488,7 @@ mod tests {
 
         // Even though `batcher_address` matches the tx sender, post-fork the sender check is
         // gated off and only events authorize.
-        assert!(
-            source.load_calldata(&block_info, batcher_address, POST_FORK_L2_TIME).await.is_ok()
-        );
+        assert!(source.load_calldata(&block_info, batcher_address).await.is_ok());
         assert!(source.calldata.is_empty()); // Sender fallback rejected post-fork
         assert!(source.open);
     }
@@ -547,7 +505,7 @@ mod tests {
         let batcher_address = tx.recover_signer().unwrap();
 
         let config = BatchAuthConfig { authenticator_address: authenticator_addr };
-        // Enforcement is set but L2 time is pre-fork.
+        // Enforcement is set but the L1 origin timestamp is pre-fork.
         let mut source = CalldataSource::new(
             TestChainProvider::default(),
             batch_inbox_address,
@@ -555,6 +513,7 @@ mod tests {
             Some(ENFORCEMENT_TIME),
         );
 
+        // L1 block timestamp is 0, well before ENFORCEMENT_TIME.
         let block_info = BlockInfo::default();
         source.chain_provider.insert_block_with_transactions(0, block_info, vec![tx.clone()]);
 
@@ -562,7 +521,7 @@ mod tests {
         // because the lookback walk is skipped. If the gate regresses, this test will fail with
         // a provider error instead of silently passing.
 
-        assert!(source.load_calldata(&block_info, batcher_address, PRE_FORK_L2_TIME).await.is_ok());
+        assert!(source.load_calldata(&block_info, batcher_address).await.is_ok());
         assert!(!source.calldata.is_empty()); // Authorized via sender path (vanilla OP)
         assert!(source.open);
     }

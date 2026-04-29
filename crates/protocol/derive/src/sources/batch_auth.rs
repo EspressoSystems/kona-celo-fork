@@ -7,7 +7,9 @@
 //!
 //! Whether batches must be authorized by an event is gated by the
 //! [`espresso_enforcement_time`](kona_genesis::HardForkConfig::espresso_enforcement_time)
-//! L2-timestamp hardfork:
+//! hardfork. The fork is conceptually an L2-timestamp hardfork, but the per-L1-block decision
+//! made at the data source layer is gated on the L1 origin time of the block being scanned —
+//! mirroring the upstream `ecotoneTime` precedent.
 //!
 //! - **Pre-fork (or fork unset):** the pipeline runs vanilla OP Stack semantics. A batch is
 //!   authorized iff its sender matches `batcher_address`. The `BatchAuthenticator` event
@@ -171,7 +173,8 @@ impl BatchAuthCache {
 /// Checks whether a batch transaction is authorized.
 ///
 /// Behaviour is gated by `enforcement_active` (computed by the caller from
-/// `RollupConfig::is_espresso_enforcement_active(l2_block_time)`):
+/// `RollupConfig::is_espresso_enforcement_active(block_ref.timestamp)` where `block_ref` is
+/// the L1 origin of the block being scanned):
 ///
 /// - **`enforcement_active = false`** (pre-fork / vanilla OP Stack): authorized iff the
 ///   transaction sender matches `batcher_address`. `auth_config` and `authenticated_hashes` are

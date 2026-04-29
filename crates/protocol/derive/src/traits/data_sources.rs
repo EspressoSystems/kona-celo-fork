@@ -33,16 +33,13 @@ pub trait DataAvailabilityProvider {
     /// `batcher_addr`. Returns a `PipelineError::Eof` if there is no more data for the given
     /// block ref.
     ///
-    /// `l2_block_time` is the timestamp of the next L2 block that this derivation step is
-    /// extending toward (i.e. `parent.timestamp + cfg.block_time`). Data sources may use this to
-    /// gate hardfork-dependent behavior. When the pipeline driver hasn't set an L2 block time
-    /// yet (e.g. on cold start), implementations receive `0` and should fall back to pre-fork
-    /// (vanilla OP) semantics.
+    /// Data sources that gate hardfork-dependent behavior on a timestamp (e.g. Espresso
+    /// event-only batch authorization enforcement) read it from `block_ref.timestamp` (the
+    /// L1 origin time of the block being scanned), mirroring the `ecotoneTime` precedent.
     async fn next(
         &mut self,
         block_ref: &BlockInfo,
         batcher_addr: Address,
-        l2_block_time: u64,
     ) -> PipelineResult<Self::Item>;
 
     /// Clears the data source for the next block ref.

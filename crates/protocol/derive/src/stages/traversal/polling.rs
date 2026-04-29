@@ -29,12 +29,6 @@ pub struct PollingTraversal<Provider: ChainProvider> {
     pub system_config: SystemConfig,
     /// A reference to the rollup config.
     pub rollup_config: Arc<RollupConfig>,
-    /// The L2 block timestamp the pipeline is currently deriving towards, if known.
-    ///
-    /// Set by the pipeline driver via [`L1RetrievalProvider::set_l2_block_time`] before each
-    /// derivation step. Consumed downstream by the data source layer to gate hardfork-dependent
-    /// behavior on the L2 timestamp.
-    pub l2_block_time: Option<u64>,
 }
 
 #[async_trait]
@@ -51,14 +45,6 @@ impl<F: ChainProvider + Send> L1RetrievalProvider for PollingTraversal<F> {
             Err(PipelineError::Eof.temp())
         }
     }
-
-    fn set_l2_block_time(&mut self, l2_block_time: u64) {
-        self.l2_block_time = Some(l2_block_time);
-    }
-
-    fn l2_block_time(&self) -> Option<u64> {
-        self.l2_block_time
-    }
 }
 
 impl<F: ChainProvider> PollingTraversal<F> {
@@ -70,7 +56,6 @@ impl<F: ChainProvider> PollingTraversal<F> {
             done: false,
             system_config: SystemConfig::default(),
             rollup_config: cfg,
-            l2_block_time: None,
         }
     }
 
@@ -170,8 +155,8 @@ impl<F: ChainProvider> OriginProvider for PollingTraversal<F> {
 impl<F: ChainProvider + Send> SignalReceiver for PollingTraversal<F> {
     async fn signal(&mut self, signal: Signal) -> PipelineResult<()> {
         match signal {
-            Signal::Reset(ResetSignal { l1_origin, system_config, .. })
-            | Signal::Activation(ActivationSignal { l1_origin, system_config, .. }) => {
+            Signal::Reset(ResetSignal { l1_origin, system_config, .. }) |
+            Signal::Activation(ActivationSignal { l1_origin, system_config, .. }) => {
                 self.update_origin(l1_origin);
                 self.system_config = system_config.expect("System config must be provided.");
             }
@@ -179,9 +164,6 @@ impl<F: ChainProvider + Send> SignalReceiver for PollingTraversal<F> {
                 /* Not supported in this stage. */
                 warn!(target: "traversal", "ProvideBlock signal not supported in PollingTraversal stage.");
                 return Err(PipelineError::UnsupportedSignal.temp());
-            }
-            Signal::SetL2BlockTime(t) => {
-                self.l2_block_time = Some(t);
             }
             _ => {}
         }

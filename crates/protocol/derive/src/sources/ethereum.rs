@@ -81,14 +81,13 @@ where
         &mut self,
         block_ref: &BlockInfo,
         batcher_address: Address,
-        l2_block_time: u64,
     ) -> PipelineResult<Self::Item> {
         let ecotone_enabled =
             self.ecotone_timestamp.map(|e| block_ref.timestamp >= e).unwrap_or(false);
         if ecotone_enabled {
-            self.blob_source.next(block_ref, batcher_address, l2_block_time).await
+            self.blob_source.next(block_ref, batcher_address).await
         } else {
-            self.calldata_source.next(block_ref, batcher_address, l2_block_time).await
+            self.calldata_source.next(block_ref, batcher_address).await
         }
     }
 
@@ -153,7 +152,7 @@ mod tests {
 
         // Should successfully retrieve a blob batch from the block
         let mut data_source = EthereumDataSource::new(blob, calldata, &cfg);
-        let data = data_source.next(&BlockInfo::default(), Address::ZERO, 0).await.unwrap();
+        let data = data_source.next(&BlockInfo::default(), Address::ZERO).await.unwrap();
         assert_eq!(data, Bytes::default());
     }
 
@@ -182,7 +181,7 @@ mod tests {
 
         // Should successfully retrieve a calldata batch from the block (pre-fork sender path).
         let mut data_source = EthereumDataSource::new_from_parts(chain, blob, &cfg);
-        let calldata_batch = data_source.next(&block_ref, batcher_address, 0).await.unwrap();
+        let calldata_batch = data_source.next(&block_ref, batcher_address).await.unwrap();
         assert_eq!(calldata_batch.len(), 119823);
     }
 }

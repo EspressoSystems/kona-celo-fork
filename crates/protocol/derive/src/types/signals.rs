@@ -19,12 +19,6 @@ pub enum Signal {
     FlushChannel,
     /// Provide a new L1 block to the L1 traversal stage.
     ProvideBlock(BlockInfo),
-    /// Tell the pipeline what L2 block timestamp the current derivation step is targeting.
-    ///
-    /// Sent by the driver before each [`Pipeline::step`](crate::Pipeline::step). Stages that
-    /// gate hardfork-dependent behavior on the L2 timestamp (notably the data source layer)
-    /// snapshot this value to use when reading L1 data.
-    SetL2BlockTime(u64),
 }
 
 impl core::fmt::Display for Signal {
@@ -34,7 +28,6 @@ impl core::fmt::Display for Signal {
             Self::Activation(_) => write!(f, "activation"),
             Self::FlushChannel => write!(f, "flush_channel"),
             Self::ProvideBlock(_) => write!(f, "provide_block"),
-            Self::SetL2BlockTime(_) => write!(f, "set_l2_block_time"),
         }
     }
 }
@@ -47,7 +40,6 @@ impl Signal {
             Self::Activation(activation) => activation.with_system_config(system_config).signal(),
             Self::FlushChannel => Self::FlushChannel,
             Self::ProvideBlock(block) => Self::ProvideBlock(block),
-            Self::SetL2BlockTime(t) => Self::SetL2BlockTime(t),
         }
     }
 }

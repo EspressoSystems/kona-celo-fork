@@ -315,10 +315,7 @@ where
                 self.l1_blocks.clear();
                 self.l1_blocks.push(l1_origin);
             }
-            s @ Signal::Activation(_)
-            | s @ Signal::FlushChannel
-            | s @ Signal::ProvideBlock(_)
-            | s @ Signal::SetL2BlockTime(_) => {
+            s @ Signal::Activation(_) | s @ Signal::FlushChannel | s @ Signal::ProvideBlock(_) => {
                 self.prev.signal(s).await?;
             }
         }
