@@ -180,6 +180,7 @@ impl ChainConfig {
             chain_op_config: self.base_fee_config(),
             alt_da_config: self.alt_da.clone(),
             batch_authenticator_address: None,
+            batch_auth_lookback_window: None,
         }
     }
 }

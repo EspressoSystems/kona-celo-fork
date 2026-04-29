@@ -50,6 +50,7 @@ where
         } else {
             None
         };
+        let batch_auth_lookback_window = cfg.batch_auth_lookback_window();
         Self {
             ecotone_timestamp: cfg.hardforks.ecotone_time,
             blob_source: BlobSource::new(
@@ -57,11 +58,13 @@ where
                 blobs,
                 cfg.batch_inbox_address,
                 batch_auth_config.clone(),
+                batch_auth_lookback_window,
             ),
             calldata_source: CalldataSource::new(
                 provider,
                 cfg.batch_inbox_address,
                 batch_auth_config,
+                batch_auth_lookback_window,
             ),
         }
     }
@@ -113,7 +116,13 @@ mod tests {
         let chain_provider = TestChainProvider::default();
         let blob_fetcher = TestBlobProvider::default();
         let batcher_address = Address::default();
-        BlobSource::new(chain_provider, blob_fetcher, batcher_address, None)
+        BlobSource::new(
+            chain_provider,
+            blob_fetcher,
+            batcher_address,
+            None,
+            kona_genesis::DEFAULT_BATCH_AUTH_LOOKBACK_WINDOW,
+        )
     }
 
     #[tokio::test]
@@ -121,10 +130,21 @@ mod tests {
         let chain = TestChainProvider::default();
         let blob = TestBlobProvider::default();
         let cfg = RollupConfig::default();
-        let mut calldata = CalldataSource::new(chain.clone(), Address::ZERO, None);
+        let mut calldata = CalldataSource::new(
+            chain.clone(),
+            Address::ZERO,
+            None,
+            kona_genesis::DEFAULT_BATCH_AUTH_LOOKBACK_WINDOW,
+        );
         calldata.calldata.insert(0, Default::default());
         calldata.open = true;
-        let mut blob = BlobSource::new(chain, blob, Address::ZERO, None);
+        let mut blob = BlobSource::new(
+            chain,
+            blob,
+            Address::ZERO,
+            None,
+            kona_genesis::DEFAULT_BATCH_AUTH_LOOKBACK_WINDOW,
+        );
         blob.data = vec![Default::default()];
         blob.open = true;
         let mut data_source = EthereumDataSource::new(blob, calldata, &cfg);
@@ -142,7 +162,12 @@ mod tests {
         let mut blob = default_test_blob_source();
         blob.open = true;
         blob.data.push(BlobData { data: None, calldata: Some(Bytes::default()) });
-        let calldata = CalldataSource::new(chain.clone(), Address::ZERO, None);
+        let calldata = CalldataSource::new(
+            chain.clone(),
+            Address::ZERO,
+            None,
+            kona_genesis::DEFAULT_BATCH_AUTH_LOOKBACK_WINDOW,
+        );
         let cfg = RollupConfig {
             hardforks: HardForkConfig { ecotone_time: Some(0), ..Default::default() },
             ..Default::default()

@@ -58,6 +58,10 @@
           OPENSSL_NO_VENDOR = "1";
           PKG_CONFIG_PATH = "${pkgs.openssl.dev}/lib/pkgconfig";
 
+          CC = "${pkgs.stdenv.cc}/bin/cc";
+          CXX = "${pkgs.stdenv.cc}/bin/c++";
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER = "${pkgs.stdenv.cc}/bin/cc";
+
           shellHook = ''
             echo "🦀 Kona development environment loaded!"
             echo "Rust version: $(rustc --version)"

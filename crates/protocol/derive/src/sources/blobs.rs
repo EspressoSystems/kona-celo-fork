@@ -35,6 +35,9 @@ where
     /// Batch authentication configuration. When `Some`, event-based batch authentication
     /// is used. When `None`, legacy sender-based authentication is used.
     pub batch_auth_config: Option<BatchAuthConfig>,
+    /// Number of L1 blocks to scan for `BatchInfoAuthenticated` events when batch auth is
+    /// enabled. Configured per-chain via [`kona_genesis::RollupConfig::batch_auth_lookback_window`].
+    pub batch_auth_lookback_window: u64,
     /// LRU caches for batch auth lookback window traversal (receipts + headers).
     pub(crate) auth_cache: BatchAuthCache,
 }
@@ -50,6 +53,7 @@ where
         blob_fetcher: B,
         batcher_address: Address,
         batch_auth_config: Option<BatchAuthConfig>,
+        batch_auth_lookback_window: u64,
     ) -> Self {
         Self {
             chain_provider,
@@ -58,7 +62,8 @@ where
             data: Vec::new(),
             open: false,
             batch_auth_config,
-            auth_cache: BatchAuthCache::new(),
+            batch_auth_lookback_window,
+            auth_cache: BatchAuthCache::new(batch_auth_lookback_window),
         }
     }
 
@@ -183,6 +188,7 @@ where
                         &mut self.chain_provider,
                         block_ref,
                         config.authenticator_address,
+                        self.batch_auth_lookback_window,
                         &mut self.auth_cache,
                     )
                     .await
@@ -291,7 +297,13 @@ pub(crate) mod tests {
         let chain_provider = TestChainProvider::default();
         let blob_fetcher = TestBlobProvider::default();
         let batcher_address = Address::default();
-        BlobSource::new(chain_provider, blob_fetcher, batcher_address, None)
+        BlobSource::new(
+            chain_provider,
+            blob_fetcher,
+            batcher_address,
+            None,
+            kona_genesis::DEFAULT_BATCH_AUTH_LOOKBACK_WINDOW,
+        )
     }
 
     pub(crate) fn valid_blob_txs() -> Vec<TxEnvelope> {

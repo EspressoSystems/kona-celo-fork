@@ -71,4 +71,5 @@ pub const BASE_MAINNET_CONFIG: RollupConfig = RollupConfig {
     alt_da_config: None,
     chain_op_config: BASE_MAINNET_BASE_FEE_CONFIG,
     batch_authenticator_address: None,
+    batch_auth_lookback_window: None,
 };

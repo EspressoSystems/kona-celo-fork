@@ -27,9 +27,6 @@ use alloy_primitives::{Address, B256, b256, keccak256};
 use kona_protocol::BlockInfo;
 use lru::LruCache;
 
-/// Number of L1 blocks before the batch submission to scan for a `BatchInfoAuthenticated` event.
-pub(crate) const BATCH_AUTH_LOOKBACK_WINDOW: u64 = 100;
-
 /// The `keccak256("BatchInfoAuthenticated(bytes32)")` event topic.
 ///
 /// This is the event emitted by the `BatchAuthenticator` contract when a batch is authenticated.
@@ -86,7 +83,7 @@ pub(crate) fn collect_auth_events_from_receipts(
     result
 }
 
-/// Scans L1 receipts in the range `[block_ref.number - BATCH_AUTH_LOOKBACK_WINDOW, block_ref.number]`
+/// Scans L1 receipts in the range `[block_ref.number - lookback_window, block_ref.number]`
 /// and returns the set of all batch commitment hashes that were authenticated via
 /// `BatchInfoAuthenticated` events.
 ///
@@ -95,13 +92,14 @@ pub(crate) fn collect_auth_events_from_receipts(
 /// for every individual batch transaction.
 ///
 /// Results are cached per block hash in the provided LRU cache. For consecutive L1 blocks
-/// the lookback windows overlap by ~99 blocks, so only one new block's receipts need
-/// to be fetched on each call. The cache is keyed by block hash (not number) so it is
-/// naturally reorg-safe.
+/// the lookback windows overlap by `lookback_window - 1` blocks, so only one new block's
+/// receipts need to be fetched on each call. The cache is keyed by block hash (not number)
+/// so it is naturally reorg-safe.
 pub(crate) async fn collect_authenticated_batches<CP: ChainProvider + Send>(
     provider: &mut CP,
     block_ref: &BlockInfo,
     authenticator_addr: Address,
+    lookback_window: u64,
     cache: &mut BatchAuthCache,
 ) -> Result<BTreeSet<B256>, CP::Error> {
     let mut all_authenticated = BTreeSet::new();
@@ -120,7 +118,7 @@ pub(crate) async fn collect_authenticated_batches<CP: ChainProvider + Send>(
             cache.receipts.put(current_hash, events);
         }
 
-        if current_number == 0 || block_ref.number - current_number >= BATCH_AUTH_LOOKBACK_WINDOW {
+        if current_number == 0 || block_ref.number - current_number >= lookback_window {
             break;
         }
 
@@ -142,8 +140,8 @@ pub(crate) async fn collect_authenticated_batches<CP: ChainProvider + Send>(
 /// LRU caches used during the batch authentication lookback window traversal.
 ///
 /// Bundles the receipt-event cache and the header (block hash → parent hash) cache.
-/// Both caches are sized slightly larger than [`BATCH_AUTH_LOOKBACK_WINDOW`]
-/// to avoid thrashing at the boundary.
+/// Both caches are sized slightly larger than the configured lookback window to avoid
+/// thrashing at the boundary.
 #[derive(Debug, Clone)]
 pub(crate) struct BatchAuthCache {
     /// Authenticated batch commitment hashes extracted from receipts, keyed by L1 block hash.
@@ -153,11 +151,11 @@ pub(crate) struct BatchAuthCache {
 }
 
 impl BatchAuthCache {
-    /// Creates a new [`BatchAuthCache`] with both caches sized to
-    /// `BATCH_AUTH_LOOKBACK_WINDOW + 2`.
-    pub(crate) fn new() -> Self {
-        let cap = core::num::NonZeroUsize::new((BATCH_AUTH_LOOKBACK_WINDOW as usize) + 2)
-            .expect("cache size must be non-zero");
+    /// Creates a new [`BatchAuthCache`] with both caches sized to `lookback_window + 2`.
+    pub(crate) fn new(lookback_window: u64) -> Self {
+        let cap =
+            lookback_window.try_into().map(|w: usize| w.saturating_add(2)).unwrap_or(usize::MAX);
+        let cap = core::num::NonZeroUsize::new(cap).expect("cache size must be non-zero");
         Self { receipts: LruCache::new(cap), headers: LruCache::new(cap) }
     }
 }
@@ -350,8 +348,9 @@ mod tests {
 
     #[test]
     fn test_new_batch_auth_cache() {
-        let cache = BatchAuthCache::new();
-        let expected_cap = (BATCH_AUTH_LOOKBACK_WINDOW as usize) + 2;
+        let lookback = 100u64;
+        let cache = BatchAuthCache::new(lookback);
+        let expected_cap = (lookback as usize) + 2;
         assert_eq!(cache.receipts.len(), 0);
         assert_eq!(cache.receipts.cap().get(), expected_cap);
         assert_eq!(cache.headers.len(), 0);
