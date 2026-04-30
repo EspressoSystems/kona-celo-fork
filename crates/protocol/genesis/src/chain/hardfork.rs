@@ -84,7 +84,7 @@ pub struct HardForkConfig {
     /// configured `BatchAuthenticator` contract within the lookback window; sender-based fallback
     /// is rejected.
     ///
-    /// Active if `espresso_enforcement_time` != None && L2 block timestamp >=
+    /// Active if `espresso_enforcement_time` != None && L1 origin timestamp >=
     /// Some(espresso_enforcement_time), inactive otherwise.
     #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
     pub espresso_enforcement_time: Option<u64>,

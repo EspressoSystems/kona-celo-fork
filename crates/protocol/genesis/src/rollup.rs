@@ -338,7 +338,7 @@ impl RollupConfig {
     }
 
     /// Returns true if Espresso event-only batch authorization enforcement is active at the
-    /// given L2 timestamp.
+    /// given L1 origin timestamp.
     ///
     /// Pre-fork the derivation pipeline runs vanilla OP Stack semantics (sender-based
     /// authorization, no `BatchAuthenticator` event lookup). Post-fork batches must be
@@ -349,12 +349,6 @@ impl RollupConfig {
     /// contract address is configured).
     pub fn is_espresso_enforcement_active(&self, timestamp: u64) -> bool {
         self.hardforks.espresso_enforcement_time.is_some_and(|t| timestamp >= t)
-    }
-
-    /// Returns true if the timestamp marks the first Espresso enforcement block.
-    pub fn is_first_espresso_enforcement_block(&self, timestamp: u64) -> bool {
-        self.is_espresso_enforcement_active(timestamp) &&
-            !self.is_espresso_enforcement_active(timestamp.saturating_sub(self.block_time))
     }
 
     /// Returns true if a DA Challenge proxy Address is provided in the rollup config and the
@@ -716,7 +710,7 @@ mod tests {
                 isthmus_time: Some(90),
                 jovian_time: Some(100),
                 interop_time: Some(110),
-                espresso_enforcement_time: Some(120),
+                ..Default::default()
             },
             block_time: 2,
             ..Default::default()
@@ -776,11 +770,6 @@ mod tests {
         assert!(!cfg.is_first_interop_block(108));
         assert!(cfg.is_first_interop_block(110));
         assert!(!cfg.is_first_interop_block(112));
-
-        // Espresso Enforcement
-        assert!(!cfg.is_first_espresso_enforcement_block(118));
-        assert!(cfg.is_first_espresso_enforcement_block(120));
-        assert!(!cfg.is_first_espresso_enforcement_block(122));
     }
 
     #[test]
