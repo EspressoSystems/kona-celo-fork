@@ -32,12 +32,19 @@ where
     pub data: Vec<BlobData>,
     /// Whether the source is open.
     pub open: bool,
-    /// Batch authentication configuration. When `Some`, event-based batch authentication
-    /// is used. When `None`, legacy sender-based authentication is used.
+    /// Batch authentication configuration. When `Some` and Espresso enforcement is active for
+    /// the L1 origin time of the block being scanned, event-based batch authentication is used.
+    /// Otherwise (pre-fork or no auth contract configured) the source falls back to vanilla OP
+    /// Stack sender verification.
     pub batch_auth_config: Option<BatchAuthConfig>,
     /// Number of L1 blocks to scan for `BatchInfoAuthenticated` events when batch auth is
     /// enabled. Configured per-chain via [`kona_genesis::RollupConfig::batch_auth_lookback_window`].
     pub batch_auth_lookback_window: u64,
+    /// Activation timestamp for the Espresso event-only batch authorization enforcement.
+    /// Sourced from [`kona_genesis::HardForkConfig::espresso_enforcement_time`]. The fork is
+    /// conceptually an L2-timestamp hardfork but the per-L1-block decision in the data source is
+    /// gated on the L1 origin time, mirroring the upstream `ecotoneTime` precedent.
+    pub espresso_enforcement_time: Option<u64>,
     /// LRU caches for batch auth lookback window traversal (receipts + headers).
     pub(crate) auth_cache: BatchAuthCache,
 }
@@ -54,6 +61,7 @@ where
         batcher_address: Address,
         batch_auth_config: Option<BatchAuthConfig>,
         batch_auth_lookback_window: u64,
+        espresso_enforcement_time: Option<u64>,
     ) -> Self {
         Self {
             chain_provider,
@@ -63,20 +71,28 @@ where
             open: false,
             batch_auth_config,
             batch_auth_lookback_window,
+            espresso_enforcement_time,
             auth_cache: BatchAuthCache::new(batch_auth_lookback_window),
         }
     }
 
+    /// Returns true when Espresso event-only batch authorization enforcement is active at the
+    /// given L1 origin time.
+    fn is_enforcement_active(&self, l1_origin_time: u64) -> bool {
+        self.espresso_enforcement_time.is_some_and(|t| l1_origin_time >= t)
+    }
+
     /// Extracts blob data and indexed blob hashes from the given transactions.
     ///
-    /// When `authenticated_hashes` is provided (event-based auth), each transaction is checked
-    /// against the authenticated set or the fallback batcher address. When `None` (legacy mode),
-    /// each transaction's sender is checked against `batcher_address`.
+    /// `enforcement_active` is computed from the L1 origin time by the caller. When `true`, each
+    /// transaction is authorized via the `authenticated_hashes` set; when `false`, vanilla OP
+    /// Stack sender verification against `batcher_address` is used.
     fn extract_blob_data(
         &self,
         txs: Vec<TxEnvelope>,
         batcher_address: Address,
         authenticated_hashes: Option<&BTreeSet<B256>>,
+        enforcement_active: bool,
     ) -> (Vec<BlobData>, Vec<IndexedBlobHash>) {
         let empty_set = BTreeSet::new();
         let auth_hashes = authenticated_hashes.unwrap_or(&empty_set);
@@ -110,12 +126,10 @@ where
             // Compute the batch hash and check authorization.
             // For blob txs: hash is keccak256(concat(blob_versioned_hashes))
             // For calldata txs: hash is keccak256(calldata)
-            let batch_hash = if let Some(ref bh) = blob_hashes {
-                let hash_refs: Vec<B256> = bh.clone();
-                compute_blob_batch_hash(&hash_refs)
-            } else {
-                compute_calldata_batch_hash(&calldata)
-            };
+            let batch_hash = blob_hashes.as_ref().map_or_else(
+                || compute_calldata_batch_hash(&calldata),
+                |bh| compute_blob_batch_hash(bh),
+            );
 
             if !is_batch_authorized(
                 &tx,
@@ -123,6 +137,7 @@ where
                 self.batch_auth_config.as_ref(),
                 auth_hashes,
                 batcher_address,
+                enforcement_active,
             ) {
                 index += blob_hashes.map_or(0, |h| h.len() as u64);
                 continue;
@@ -180,8 +195,11 @@ where
             .await
             .map_err(|e| BlobProviderError::Backend(e.to_string()))?;
 
-        // Collect authenticated batch hashes when batch auth is enabled.
-        let authenticated_hashes: Option<BTreeSet<B256>> =
+        let enforcement_active = self.is_enforcement_active(block_ref.timestamp);
+
+        // Pre-fork the lookback walk is bypassed entirely so derivation is byte-identical to
+        // upstream OP Stack (the BatchAuthenticator events are still emitted on L1 but ignored).
+        let authenticated_hashes: Option<BTreeSet<B256>> = if enforcement_active {
             if let Some(ref config) = self.batch_auth_config {
                 Some(
                     collect_authenticated_batches(
@@ -196,10 +214,17 @@ where
                 )
             } else {
                 None
-            };
+            }
+        } else {
+            None
+        };
 
-        let (mut data, blob_hashes) =
-            self.extract_blob_data(info.1, batcher_address, authenticated_hashes.as_ref());
+        let (mut data, blob_hashes) = self.extract_blob_data(
+            info.1,
+            batcher_address,
+            authenticated_hashes.as_ref(),
+            enforcement_active,
+        );
 
         // If there are no hashes, set the calldata and return.
         if blob_hashes.is_empty() {
@@ -303,6 +328,7 @@ pub(crate) mod tests {
             batcher_address,
             None,
             kona_genesis::DEFAULT_BATCH_AUTH_LOOKBACK_WINDOW,
+            None,
         )
     }
 

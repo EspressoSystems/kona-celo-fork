@@ -3,8 +3,7 @@
 
 use crate::{
     BlobProvider, BlobSource, CalldataSource, ChainProvider, DataAvailabilityProvider,
-    PipelineResult,
-    sources::batch_auth::BatchAuthConfig,
+    PipelineResult, sources::batch_auth::BatchAuthConfig,
 };
 use alloc::{boxed::Box, fmt::Debug};
 use alloy_primitives::{Address, Bytes};
@@ -33,7 +32,7 @@ where
     B: BlobProvider + Send + Clone + Debug,
 {
     /// Instantiates a new [`EthereumDataSource`].
-    pub fn new(
+    pub const fn new(
         blob_source: BlobSource<C, B>,
         calldata_source: CalldataSource<C>,
         cfg: &RollupConfig,
@@ -51,6 +50,7 @@ where
             None
         };
         let batch_auth_lookback_window = cfg.batch_auth_lookback_window();
+        let espresso_enforcement_time = cfg.hardforks.espresso_enforcement_time;
         Self {
             ecotone_timestamp: cfg.hardforks.ecotone_time,
             blob_source: BlobSource::new(
@@ -59,12 +59,14 @@ where
                 cfg.batch_inbox_address,
                 batch_auth_config.clone(),
                 batch_auth_lookback_window,
+                espresso_enforcement_time,
             ),
             calldata_source: CalldataSource::new(
                 provider,
                 cfg.batch_inbox_address,
                 batch_auth_config,
                 batch_auth_lookback_window,
+                espresso_enforcement_time,
             ),
         }
     }
@@ -122,6 +124,7 @@ mod tests {
             batcher_address,
             None,
             kona_genesis::DEFAULT_BATCH_AUTH_LOOKBACK_WINDOW,
+            None,
         )
     }
 
@@ -135,6 +138,7 @@ mod tests {
             Address::ZERO,
             None,
             kona_genesis::DEFAULT_BATCH_AUTH_LOOKBACK_WINDOW,
+            None,
         );
         calldata.calldata.insert(0, Default::default());
         calldata.open = true;
@@ -144,6 +148,7 @@ mod tests {
             Address::ZERO,
             None,
             kona_genesis::DEFAULT_BATCH_AUTH_LOOKBACK_WINDOW,
+            None,
         );
         blob.data = vec![Default::default()];
         blob.open = true;
@@ -167,6 +172,7 @@ mod tests {
             Address::ZERO,
             None,
             kona_genesis::DEFAULT_BATCH_AUTH_LOOKBACK_WINDOW,
+            None,
         );
         let cfg = RollupConfig {
             hardforks: HardForkConfig { ecotone_time: Some(0), ..Default::default() },
@@ -194,7 +200,7 @@ mod tests {
         // load a test batcher transaction
         let raw_batcher_tx = include_bytes!("../../testdata/raw_batcher_tx.hex");
         let tx = TxEnvelope::decode_2718(&mut raw_batcher_tx.as_ref()).unwrap();
-         chain.insert_block_with_transactions(10, block_ref, vec![tx.clone()]);
+        chain.insert_block_with_transactions(10, block_ref, vec![tx.clone()]);
         let receipt = Receipt {
             cumulative_gas_used: 42000,
             status: Eip658Value::Eip658(true),
@@ -202,7 +208,7 @@ mod tests {
         };
         chain.insert_receipts(block_ref.hash, vec![receipt]);
 
-        // Should successfully retrieve a calldata batch from the block
+        // Should successfully retrieve a calldata batch from the block (pre-fork sender path).
         let mut data_source = EthereumDataSource::new_from_parts(chain, blob, &cfg);
         let calldata_batch = data_source.next(&block_ref, batcher_address).await.unwrap();
         assert_eq!(calldata_batch.len(), 119823);

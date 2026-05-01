@@ -9,8 +9,8 @@ use alloy_op_hardforks::{
 };
 use alloy_primitives::{address, b256, uint};
 use kona_genesis::{
-    ChainGenesis, HardForkConfig, RollupConfig, SystemConfig,
-    DEFAULT_INTEROP_MESSAGE_EXPIRY_WINDOW, OP_MAINNET_BASE_FEE_CONFIG,
+    ChainGenesis, DEFAULT_INTEROP_MESSAGE_EXPIRY_WINDOW, HardForkConfig,
+    OP_MAINNET_BASE_FEE_CONFIG, RollupConfig, SystemConfig,
 };
 
 /// The [RollupConfig] for OP Mainnet.
@@ -61,6 +61,7 @@ pub const OP_MAINNET_CONFIG: RollupConfig = RollupConfig {
         isthmus_time: Some(OP_MAINNET_ISTHMUS_TIMESTAMP),
         jovian_time: Some(OP_MAINNET_JOVIAN_TIMESTAMP),
         interop_time: None,
+        espresso_enforcement_time: None,
     },
     batch_inbox_address: address!("ff00000000000000000000000000000000000010"),
     deposit_contract_address: address!("beb5fc579115071764c7423a4f12edde41f106ed"),
