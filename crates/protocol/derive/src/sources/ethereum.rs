@@ -3,8 +3,7 @@
 
 use crate::{
     BlobProvider, BlobSource, CalldataSource, ChainProvider, DataAvailabilityProvider,
-    PipelineResult,
-    sources::batch_auth::BatchAuthConfig,
+    PipelineResult, sources::batch_auth::BatchAuthConfig,
 };
 use alloc::{boxed::Box, fmt::Debug};
 use alloy_primitives::{Address, Bytes};
@@ -33,7 +32,7 @@ where
     B: BlobProvider + Send + Clone + Debug,
 {
     /// Instantiates a new [`EthereumDataSource`].
-    pub fn new(
+    pub const fn new(
         blob_source: BlobSource<C, B>,
         calldata_source: CalldataSource<C>,
         cfg: &RollupConfig,
@@ -50,6 +49,7 @@ where
         } else {
             None
         };
+        let espresso_enforcement_time = cfg.hardforks.espresso_enforcement_time;
         Self {
             ecotone_timestamp: cfg.hardforks.ecotone_time,
             blob_source: BlobSource::new(
@@ -57,11 +57,13 @@ where
                 blobs,
                 cfg.batch_inbox_address,
                 batch_auth_config.clone(),
+                espresso_enforcement_time,
             ),
             calldata_source: CalldataSource::new(
                 provider,
                 cfg.batch_inbox_address,
                 batch_auth_config,
+                espresso_enforcement_time,
             ),
         }
     }
@@ -113,7 +115,7 @@ mod tests {
         let chain_provider = TestChainProvider::default();
         let blob_fetcher = TestBlobProvider::default();
         let batcher_address = Address::default();
-        BlobSource::new(chain_provider, blob_fetcher, batcher_address, None)
+        BlobSource::new(chain_provider, blob_fetcher, batcher_address, None, None)
     }
 
     #[tokio::test]
@@ -121,10 +123,10 @@ mod tests {
         let chain = TestChainProvider::default();
         let blob = TestBlobProvider::default();
         let cfg = RollupConfig::default();
-        let mut calldata = CalldataSource::new(chain.clone(), Address::ZERO, None);
+        let mut calldata = CalldataSource::new(chain.clone(), Address::ZERO, None, None);
         calldata.calldata.insert(0, Default::default());
         calldata.open = true;
-        let mut blob = BlobSource::new(chain, blob, Address::ZERO, None);
+        let mut blob = BlobSource::new(chain, blob, Address::ZERO, None, None);
         blob.data = vec![Default::default()];
         blob.open = true;
         let mut data_source = EthereumDataSource::new(blob, calldata, &cfg);
@@ -142,7 +144,7 @@ mod tests {
         let mut blob = default_test_blob_source();
         blob.open = true;
         blob.data.push(BlobData { data: None, calldata: Some(Bytes::default()) });
-        let calldata = CalldataSource::new(chain.clone(), Address::ZERO, None);
+        let calldata = CalldataSource::new(chain.clone(), Address::ZERO, None, None);
         let cfg = RollupConfig {
             hardforks: HardForkConfig { ecotone_time: Some(0), ..Default::default() },
             ..Default::default()
@@ -169,7 +171,7 @@ mod tests {
         // load a test batcher transaction
         let raw_batcher_tx = include_bytes!("../../testdata/raw_batcher_tx.hex");
         let tx = TxEnvelope::decode_2718(&mut raw_batcher_tx.as_ref()).unwrap();
-         chain.insert_block_with_transactions(10, block_ref, vec![tx.clone()]);
+        chain.insert_block_with_transactions(10, block_ref, vec![tx.clone()]);
         let receipt = Receipt {
             cumulative_gas_used: 42000,
             status: Eip658Value::Eip658(true),
@@ -177,7 +179,7 @@ mod tests {
         };
         chain.insert_receipts(block_ref.hash, vec![receipt]);
 
-        // Should successfully retrieve a calldata batch from the block
+        // Should successfully retrieve a calldata batch from the block (pre-fork sender path).
         let mut data_source = EthereumDataSource::new_from_parts(chain, blob, &cfg);
         let calldata_batch = data_source.next(&block_ref, batcher_address).await.unwrap();
         assert_eq!(calldata_batch.len(), 119823);

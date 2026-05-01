@@ -337,6 +337,20 @@ impl RollupConfig {
         self.batch_authenticator_address.is_some_and(|addr| !addr.is_zero())
     }
 
+    /// Returns true if Espresso event-only batch authorization enforcement is active at the
+    /// given L1 origin timestamp.
+    ///
+    /// Pre-fork the derivation pipeline runs vanilla OP Stack semantics (sender-based
+    /// authorization, no `BatchAuthenticator` event lookup). Post-fork batches must be
+    /// authenticated by `BatchInfoAuthenticated` events; sender-based fallback is rejected.
+    ///
+    /// This is intentionally orthogonal to the chained OP Stack hardforks and to
+    /// [`Self::is_batch_auth_enabled`] (which only signals that a `BatchAuthenticator`
+    /// contract address is configured).
+    pub fn is_espresso_enforcement_active(&self, timestamp: u64) -> bool {
+        self.hardforks.espresso_enforcement_time.is_some_and(|t| timestamp >= t)
+    }
+
     /// Returns true if a DA Challenge proxy Address is provided in the rollup config and the
     /// address is not zero.
     pub fn is_alt_da_enabled(&self) -> bool {
@@ -696,6 +710,7 @@ mod tests {
                 isthmus_time: Some(90),
                 jovian_time: Some(100),
                 interop_time: Some(110),
+                ..Default::default()
             },
             block_time: 2,
             ..Default::default()
@@ -755,6 +770,26 @@ mod tests {
         assert!(!cfg.is_first_interop_block(108));
         assert!(cfg.is_first_interop_block(110));
         assert!(!cfg.is_first_interop_block(112));
+    }
+
+    #[test]
+    fn test_is_espresso_enforcement_active() {
+        let mut cfg = RollupConfig::default();
+
+        // Unset: never active.
+        assert!(!cfg.is_espresso_enforcement_active(0));
+        assert!(!cfg.is_espresso_enforcement_active(u64::MAX));
+
+        // Set: boundary semantics match the other forks.
+        cfg.hardforks.espresso_enforcement_time = Some(100);
+        assert!(!cfg.is_espresso_enforcement_active(99));
+        assert!(cfg.is_espresso_enforcement_active(100));
+        assert!(cfg.is_espresso_enforcement_active(101));
+
+        // Espresso enforcement is independent of any other fork timestamp.
+        cfg.hardforks.interop_time = Some(50);
+        assert!(!cfg.is_espresso_enforcement_active(99));
+        assert!(cfg.is_interop_active(99));
     }
 
     #[test]
