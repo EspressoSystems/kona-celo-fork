@@ -1,13 +1,11 @@
 module github.com/op-rs/kona
 
-go 1.23.8
+go 1.24
 
 // We're using the "develop" branch of the Optimism repo to include the latest changes to the `devstack` package.
 require github.com/ethereum-optimism/optimism v1.14.4-0.20251029204710-ebbff51f4cc9
 
 require (
-	github.com/BurntSushi/toml v1.5.0
-	github.com/bmatcuk/doublestar/v4 v4.8.1
 	github.com/ethereum/go-ethereum v1.16.3
 	github.com/gorilla/websocket v1.5.3
 	github.com/libp2p/go-libp2p v0.36.2
@@ -17,6 +15,7 @@ require (
 
 require (
 	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect
+	github.com/BurntSushi/toml v1.5.0 // indirect
 	github.com/DataDog/zstd v1.5.6-0.20230824185856-869dae002e5e // indirect
 	github.com/Masterminds/semver/v3 v3.3.1 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
@@ -120,7 +119,7 @@ require (
 	github.com/jackpal/go-nat-pmp v1.0.2 // indirect
 	github.com/jbenet/go-temp-err-catcher v0.1.0 // indirect
 	github.com/jbenet/goprocess v0.1.4 // indirect
-	github.com/klauspost/compress v1.18.0 // indirect
+	github.com/klauspost/compress v1.18.7 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.9 // indirect
 	github.com/koron/go-ssdp v0.0.4 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
